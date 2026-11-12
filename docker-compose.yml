@@ -1,0 +1,22 @@
+services:
+  mattlab-sfx:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: mattlab-sfx
+    restart: unless-stopped
+    ports:
+      - "8087:8087"
+    volumes:
+      - /mnt/user/Assets/Sound effects:/sfx:ro
+      - /mnt/cache/appdata/mattlab-sfx/data:/data
+      - /mnt/cache/appdata/mattlab-sfx/peaks:/peaks
+      - ./backend/app:/app/app
+      - ./frontend/dist:/app/frontend_dist:ro
+    environment:
+      - SFX_DIR=/sfx
+      - DATA_DIR=/data
+      - PEAKS_DIR=/peaks
+      - DB_PATH=/data/sfx.db
+      - PORT=8087
+      - SMB_BASE_PATH=\\MATTLAB\Assets\Sound effects
