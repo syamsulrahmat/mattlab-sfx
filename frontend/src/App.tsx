@@ -1,11 +1,13 @@
 import React, { useState, useEffect, useRef } from 'react';
 import WaveSurfer from 'wavesurfer.js';
-import { Play, Pause, Search, Folder, Volume2, Copy, Check, RefreshCw, Zap } from 'lucide-react';
+import { Play, Pause, Search, Folder, Volume2, Copy, Check, RefreshCw, Zap, Layers, Tag, X } from 'lucide-react';
 
 interface AudioItem {
   id: number;
   filename: string;
   rel_path: string;
+  pack: string;
+  folder: string;
   category: string;
   sub_category: string;
   duration: number;
@@ -18,6 +20,8 @@ interface AudioItem {
 export default function App() {
   const [query, setQuery] = useState('');
   const [category, setCategory] = useState('');
+  const [pack, setPack] = useState('');
+  const [sidebarTab, setSidebarTab] = useState<'categories' | 'packs'>('categories');
   const [results, setResults] = useState<AudioItem[]>([]);
   const [total, setTotal] = useState(0);
   const [selectedId, setSelectedId] = useState<number | null>(null);
@@ -25,6 +29,7 @@ export default function App() {
   const [copiedId, setCopiedId] = useState<number | null>(null);
   const [scanning, setScanning] = useState(false);
   const [categories, setCategories] = useState<{ category: string; sub_category: string; count: number }[]>([]);
+  const [packs, setPacks] = useState<{ pack: string; count: number }[]>([]);
 
   const waveformRef = useRef<HTMLDivElement>(null);
   const wavesurfer = useRef<WaveSurfer | null>(null);
@@ -56,9 +61,9 @@ export default function App() {
   }, []);
 
   // Fetch search results
-  const fetchResults = async (q: string, cat: string) => {
+  const fetchResults = async (q: string, cat: string, p: string) => {
     try {
-      const res = await fetch(`/api/search?q=${encodeURIComponent(q)}&category=${encodeURIComponent(cat)}&limit=100`);
+      const res = await fetch(`/api/search?q=${encodeURIComponent(q)}&category=${encodeURIComponent(cat)}&pack=${encodeURIComponent(p)}&limit=100`);
       const data = await res.json();
       setResults(data.results || []);
       setTotal(data.total || 0);
@@ -67,21 +72,29 @@ export default function App() {
     }
   };
 
-  // Fetch categories
-  const fetchCategories = async () => {
+  // Fetch metadata lists
+  const fetchSidebarData = async () => {
     try {
-      const res = await fetch('/api/categories');
-      const data = await res.json();
-      setCategories(data);
+      const [catRes, packRes] = await Promise.all([
+        fetch('/api/categories'),
+        fetch('/api/packs')
+      ]);
+      setCategories(await catRes.json());
+      setPacks(await packRes.json());
     } catch (e) {
       console.error(e);
     }
   };
 
   useEffect(() => {
-    fetchResults(query, category);
-    fetchCategories();
-  }, [query, category]);
+    fetchResults(query, category, pack);
+  }, [query, category, pack]);
+
+  useEffect(() => {
+    fetchSidebarData();
+    const interval = setInterval(fetchSidebarData, 10000);
+    return () => clearInterval(interval);
+  }, []);
 
   // Load and play selected track
   const selectTrack = async (item: AudioItem) => {
@@ -89,7 +102,6 @@ export default function App() {
     if (!wavesurfer.current) return;
 
     try {
-      // Fetch precomputed peaks for instantaneous zero-delay render
       const peakRes = await fetch(`/api/peaks/${item.id}`);
       const peaks = await peakRes.json();
       const audioUrl = `/api/stream/${item.id}`;
@@ -108,7 +120,6 @@ export default function App() {
     const handleKeyDown = (e: KeyboardEvent) => {
       const isInput = document.activeElement === searchInputRef.current;
 
-      // "/" or "Ctrl+K" / "Cmd+K" to focus search
       if (!isInput && (e.key === '/' || ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k'))) {
         e.preventDefault();
         searchInputRef.current?.focus();
@@ -116,7 +127,6 @@ export default function App() {
         return;
       }
 
-      // If user is inside the search box
       if (isInput) {
         if (e.key === 'Escape') {
           e.preventDefault();
@@ -165,19 +175,19 @@ export default function App() {
     setScanning(true);
     await fetch('/api/scan', { method: 'POST' });
     setTimeout(() => {
-      fetchResults(query, category);
-      fetchCategories();
+      fetchResults(query, category, pack);
+      fetchSidebarData();
       setScanning(false);
-    }, 3000);
+    }, 2000);
   };
 
   const currentItem = results.find((r) => r.id === selectedId);
 
   return (
     <div className="flex h-screen bg-slate-950 text-slate-100 font-sans overflow-hidden">
-      {/* Sidebar: Categories */}
-      <div className="w-64 bg-slate-900 border-r border-slate-800 flex flex-col p-4">
-        <div className="flex items-center gap-2 mb-6 px-2">
+      {/* Sidebar: Categories & Packs */}
+      <div className="w-72 bg-slate-900 border-r border-slate-800 flex flex-col p-4">
+        <div className="flex items-center gap-2 mb-4 px-2">
           <Zap className="w-6 h-6 text-indigo-400" />
           <h1 className="text-xl font-bold tracking-tight text-white">MattLab SFX</h1>
         </div>
@@ -185,59 +195,135 @@ export default function App() {
         <button
           onClick={triggerScan}
           disabled={scanning}
-          className="flex items-center justify-center gap-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg py-2 px-3 text-sm font-medium transition mb-6 shadow-sm"
+          className="flex items-center justify-center gap-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg py-2 px-3 text-sm font-medium transition mb-4 shadow-sm"
         >
           <RefreshCw className={`w-4 h-4 ${scanning ? 'animate-spin' : ''}`} />
           {scanning ? 'Scanning...' : 'Rescan Library'}
         </button>
 
-        <h2 className="text-xs font-semibold uppercase tracking-wider text-slate-400 mb-2 px-2">UCS Categories</h2>
-        <div className="flex-1 overflow-y-auto space-y-1">
+        {/* Tab Buttons: Categories vs Packs */}
+        <div className="flex p-1 bg-slate-800/80 rounded-lg mb-3">
           <button
-            onClick={() => setCategory('')}
-            className={`w-full text-left px-3 py-1.5 rounded-md text-sm transition ${
-              category === '' ? 'bg-indigo-600/20 text-indigo-300 font-medium' : 'text-slate-400 hover:bg-slate-800'
+            onClick={() => setSidebarTab('categories')}
+            className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 text-xs font-semibold rounded-md transition ${
+              sidebarTab === 'categories' ? 'bg-indigo-600 text-white shadow' : 'text-slate-400 hover:text-white'
             }`}
           >
-            All Categories ({total})
+            <Tag className="w-3.5 h-3.5" />
+            UCS Types
           </button>
-          {categories.map((c) => (
-            <button
-              key={c.category}
-              onClick={() => setCategory(c.category)}
-              className={`w-full flex items-center justify-between px-3 py-1.5 rounded-md text-sm transition ${
-                category === c.category ? 'bg-indigo-600/20 text-indigo-300 font-medium' : 'text-slate-400 hover:bg-slate-800'
-              }`}
-            >
-              <span>{c.sub_category || c.category}</span>
-              <span className="text-xs text-slate-500">{c.count}</span>
-            </button>
-          ))}
+          <button
+            onClick={() => setSidebarTab('packs')}
+            className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 text-xs font-semibold rounded-md transition ${
+              sidebarTab === 'packs' ? 'bg-indigo-600 text-white shadow' : 'text-slate-400 hover:text-white'
+            }`}
+          >
+            <Layers className="w-3.5 h-3.5" />
+            Packs ({packs.length})
+          </button>
+        </div>
+
+        {/* Sidebar Lists */}
+        <div className="flex-1 overflow-y-auto space-y-1 pr-1">
+          {sidebarTab === 'categories' ? (
+            <>
+              <button
+                onClick={() => setCategory('')}
+                className={`w-full text-left px-3 py-1.5 rounded-md text-sm transition ${
+                  category === '' ? 'bg-indigo-600/20 text-indigo-300 font-medium' : 'text-slate-400 hover:bg-slate-800'
+                }`}
+              >
+                All Categories ({total})
+              </button>
+              {categories.map((c) => (
+                <button
+                  key={c.category}
+                  onClick={() => setCategory(category === c.category ? '' : c.category)}
+                  className={`w-full flex items-center justify-between px-3 py-1.5 rounded-md text-sm transition ${
+                    category === c.category ? 'bg-indigo-600/20 text-indigo-300 font-medium' : 'text-slate-400 hover:bg-slate-800'
+                  }`}
+                >
+                  <span>{c.sub_category || c.category}</span>
+                  <span className="text-xs text-slate-500">{c.count}</span>
+                </button>
+              ))}
+            </>
+          ) : (
+            <>
+              <button
+                onClick={() => setPack('')}
+                className={`w-full text-left px-3 py-1.5 rounded-md text-sm transition ${
+                  pack === '' ? 'bg-indigo-600/20 text-indigo-300 font-medium' : 'text-slate-400 hover:bg-slate-800'
+                }`}
+              >
+                All Sound Packs
+              </button>
+              {packs.map((p) => (
+                <button
+                  key={p.pack}
+                  onClick={() => setPack(pack === p.pack ? '' : p.pack)}
+                  className={`w-full flex items-center justify-between px-3 py-1.5 rounded-md text-sm transition ${
+                    pack === p.pack ? 'bg-indigo-600/20 text-indigo-300 font-medium' : 'text-slate-400 hover:bg-slate-800'
+                  }`}
+                >
+                  <span className="truncate pr-2 text-left" title={p.pack}>{p.pack}</span>
+                  <span className="text-xs text-slate-500 shrink-0">{p.count}</span>
+                </button>
+              ))}
+            </>
+          )}
         </div>
       </div>
 
       {/* Main Content Area */}
       <div className="flex-1 flex flex-col min-w-0">
         {/* Top Search Header */}
-        <div className="p-4 border-b border-slate-800 bg-slate-900/40 flex items-center gap-4">
-          <div className="relative flex-1">
-            <Search className="absolute left-3.5 top-2.5 w-5 h-5 text-slate-400" />
-            <input
-              ref={searchInputRef}
-              type="text"
-              placeholder="Search 33,000+ sound effects (e.g. explosion, whoosh)... Press / or Ctrl+K to search"
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              className="w-full bg-slate-800/80 border border-slate-700 rounded-lg pl-11 pr-24 py-2 text-sm text-white placeholder-slate-400 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
-            />
-            <div className="absolute right-3 top-2.5 flex items-center gap-1">
-              <kbd className="px-1.5 py-0.5 text-[10px] font-mono text-slate-400 bg-slate-700/60 rounded border border-slate-600">/</kbd>
-              <kbd className="px-1.5 py-0.5 text-[10px] font-mono text-slate-400 bg-slate-700/60 rounded border border-slate-600">Ctrl+K</kbd>
+        <div className="p-4 border-b border-slate-800 bg-slate-900/40 flex flex-col gap-2">
+          <div className="flex items-center gap-4">
+            <div className="relative flex-1">
+              <Search className="absolute left-3.5 top-2.5 w-5 h-5 text-slate-400" />
+              <input
+                ref={searchInputRef}
+                type="text"
+                placeholder={pack ? `Search inside "${pack}"...` : "Search 33,000+ sound effects (e.g. explosion, whoosh)..."}
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                className="w-full bg-slate-800/80 border border-slate-700 rounded-lg pl-11 pr-24 py-2 text-sm text-white placeholder-slate-400 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
+              />
+              <div className="absolute right-3 top-2.5 flex items-center gap-1">
+                <kbd className="px-1.5 py-0.5 text-[10px] font-mono text-slate-400 bg-slate-700/60 rounded border border-slate-600">/</kbd>
+                <kbd className="px-1.5 py-0.5 text-[10px] font-mono text-slate-400 bg-slate-700/60 rounded border border-slate-600">Ctrl+K</kbd>
+              </div>
+            </div>
+            <div className="text-xs text-slate-400 whitespace-nowrap">
+              <span className="font-semibold text-slate-200">{total}</span> total
             </div>
           </div>
-          <div className="text-xs text-slate-400">
-            <span className="font-semibold text-slate-200">{results.length}</span> results shown
-          </div>
+
+          {/* Active Filter Pills */}
+          {(pack || category) && (
+            <div className="flex items-center gap-2 pt-1">
+              <span className="text-xs text-slate-500">Filtered by:</span>
+              {pack && (
+                <span className="inline-flex items-center gap-1.5 bg-indigo-900/60 text-indigo-300 border border-indigo-700/50 text-xs px-2.5 py-1 rounded-full">
+                  <Layers className="w-3 h-3" />
+                  Pack: <strong className="font-semibold">{pack}</strong>
+                  <button onClick={() => setPack('')} className="hover:text-white ml-0.5">
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                </span>
+              )}
+              {category && (
+                <span className="inline-flex items-center gap-1.5 bg-slate-800 text-slate-300 border border-slate-700 text-xs px-2.5 py-1 rounded-full">
+                  <Tag className="w-3 h-3" />
+                  Category: <strong className="font-semibold">{category}</strong>
+                  <button onClick={() => setCategory('')} className="hover:text-white ml-0.5">
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                </span>
+              )}
+            </div>
+          )}
         </div>
 
         {/* SFX Table List */}
@@ -246,7 +332,7 @@ export default function App() {
             <thead className="bg-slate-900/60 text-slate-400 text-xs uppercase sticky top-0 backdrop-blur z-10 border-b border-slate-800">
               <tr>
                 <th className="py-2.5 px-4 w-12">Play</th>
-                <th className="py-2.5 px-4">Filename</th>
+                <th className="py-2.5 px-4">Filename & Collection</th>
                 <th className="py-2.5 px-4">Category</th>
                 <th className="py-2.5 px-4">Duration</th>
                 <th className="py-2.5 px-4">Sample Rate</th>
@@ -280,8 +366,23 @@ export default function App() {
                       </button>
                     </td>
                     <td className="py-2 px-4 font-medium text-slate-200">
-                      <div>{item.filename}</div>
-                      {item.description && <div className="text-xs text-slate-500 truncate max-w-md">{item.description}</div>}
+                      <div className="flex items-center gap-2">
+                        <span>{item.filename}</span>
+                        {item.pack && (
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setPack(item.pack);
+                              setSidebarTab('packs');
+                            }}
+                            className="text-[11px] font-normal text-indigo-400 hover:text-indigo-300 bg-indigo-950/70 border border-indigo-800/50 px-2 py-0.5 rounded transition"
+                            title={`Filter library to ${item.pack}`}
+                          >
+                            {item.pack}
+                          </button>
+                        )}
+                      </div>
+                      {item.folder && <div className="text-xs text-slate-500 truncate max-w-md">{item.folder}</div>}
                     </td>
                     <td className="py-2 px-4">
                       <span className="inline-block bg-slate-800 text-slate-300 text-xs px-2 py-0.5 rounded">

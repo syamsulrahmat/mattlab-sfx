@@ -14,6 +14,14 @@ scan_status = {
     "last_scan_time": None
 }
 
+def parse_pack_and_folder(rel_path: str) -> tuple[str, str]:
+    parts = rel_path.replace("\\", "/").split("/")
+    if len(parts) <= 1:
+        return "Loose Files", ""
+    pack = parts[0]
+    folder = "/".join(parts[1:-1]) if len(parts) > 2 else ""
+    return pack, folder
+
 def scan_library(sfx_dir: str):
     global scan_status
     if scan_status["is_scanning"]:
@@ -24,7 +32,7 @@ def scan_library(sfx_dir: str):
     conn = get_db()
     try:
         # Collect existing paths to do incremental updates
-        existing = {row["rel_path"]: row["mtime"] for row in conn.execute("SELECT rel_path, mtime FROM audio_files").fetchall()}
+        existing = {row["rel_path"]: (row["mtime"], row["pack"]) for row in conn.execute("SELECT rel_path, mtime, pack FROM audio_files").fetchall()}
         
         candidates = []
         for root, _, files in os.walk(sfx_dir):
@@ -44,10 +52,14 @@ def scan_library(sfx_dir: str):
                 mtime = stat.st_mtime
                 size = stat.st_size
                 
-                # Check if file changed or is new
-                if rel_path in existing and abs(existing[rel_path] - mtime) < 1.0:
-                    scan_status["processed_files"] += 1
-                    continue
+                pack, folder = parse_pack_and_folder(rel_path)
+
+                # Check if file changed, is new, or needs pack populated
+                if rel_path in existing:
+                    old_mtime, old_pack = existing[rel_path]
+                    if abs(old_mtime - mtime) < 1.0 and old_pack:
+                        scan_status["processed_files"] += 1
+                        continue
 
                 tokens = tokenize_path(rel_path)
                 cat_code, cat_name = match_ucs(tokens)
@@ -65,6 +77,8 @@ def scan_library(sfx_dir: str):
                     meta["bit_depth"],
                     cat_code,
                     cat_name,
+                    pack,
+                    folder,
                     meta["title"],
                     meta["description"],
                     meta["designer"],
@@ -77,8 +91,8 @@ def scan_library(sfx_dir: str):
                             INSERT INTO audio_files (
                                 rel_path, filename, extension, file_size, mtime,
                                 duration, sample_rate, channels, bit_depth,
-                                category, sub_category, title, description, designer, tokens
-                            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                category, sub_category, pack, folder, title, description, designer, tokens
+                            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                             ON CONFLICT(rel_path) DO UPDATE SET
                                 mtime=excluded.mtime,
                                 file_size=excluded.file_size,
@@ -88,6 +102,8 @@ def scan_library(sfx_dir: str):
                                 bit_depth=excluded.bit_depth,
                                 category=excluded.category,
                                 sub_category=excluded.sub_category,
+                                pack=excluded.pack,
+                                folder=excluded.folder,
                                 title=excluded.title,
                                 description=excluded.description,
                                 designer=excluded.designer,
@@ -105,8 +121,8 @@ def scan_library(sfx_dir: str):
                     INSERT INTO audio_files (
                         rel_path, filename, extension, file_size, mtime,
                         duration, sample_rate, channels, bit_depth,
-                        category, sub_category, title, description, designer, tokens
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        category, sub_category, pack, folder, title, description, designer, tokens
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     ON CONFLICT(rel_path) DO UPDATE SET
                         mtime=excluded.mtime,
                         file_size=excluded.file_size,
@@ -116,6 +132,8 @@ def scan_library(sfx_dir: str):
                         bit_depth=excluded.bit_depth,
                         category=excluded.category,
                         sub_category=excluded.sub_category,
+                        pack=excluded.pack,
+                        folder=excluded.folder,
                         title=excluded.title,
                         description=excluded.description,
                         designer=excluded.designer,

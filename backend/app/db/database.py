@@ -29,6 +29,8 @@ def init_db():
                 bit_depth INTEGER DEFAULT 0,
                 category TEXT DEFAULT '',
                 sub_category TEXT DEFAULT '',
+                pack TEXT DEFAULT '',
+                folder TEXT DEFAULT '',
                 title TEXT DEFAULT '',
                 description TEXT DEFAULT '',
                 designer TEXT DEFAULT '',
@@ -37,12 +39,22 @@ def init_db():
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );
         """)
+
+        # Migration: Add pack and folder if table existed prior
+        cols = [c[1] for c in conn.execute("PRAGMA table_info(audio_files)").fetchall()]
+        if "pack" not in cols:
+            conn.execute("ALTER TABLE audio_files ADD COLUMN pack TEXT DEFAULT '';")
+        if "folder" not in cols:
+            conn.execute("ALTER TABLE audio_files ADD COLUMN folder TEXT DEFAULT '';")
         
         # Virtual table for Sub-millisecond Full-Text Search
+        conn.execute("DROP TABLE IF EXISTS audio_fts;")
         conn.execute("""
             CREATE VIRTUAL TABLE IF NOT EXISTS audio_fts USING fts5(
                 filename,
                 tokens,
+                pack,
+                folder,
                 description,
                 category,
                 sub_category,
@@ -53,30 +65,41 @@ def init_db():
             );
         """)
 
-        # Triggers to keep FTS index synchronized
+        # Re-create triggers
+        conn.execute("DROP TRIGGER IF EXISTS audio_ai;")
         conn.execute("""
-            CREATE TRIGGER IF NOT EXISTS audio_ai AFTER INSERT ON audio_files BEGIN
-                INSERT INTO audio_fts(rowid, filename, tokens, description, category, sub_category, designer)
-                VALUES (new.id, new.filename, new.tokens, new.description, new.category, new.sub_category, new.designer);
+            CREATE TRIGGER audio_ai AFTER INSERT ON audio_files BEGIN
+                INSERT INTO audio_fts(rowid, filename, tokens, pack, folder, description, category, sub_category, designer)
+                VALUES (new.id, new.filename, new.tokens, new.pack, new.folder, new.description, new.category, new.sub_category, new.designer);
             END;
         """)
 
+        conn.execute("DROP TRIGGER IF EXISTS audio_ad;")
         conn.execute("""
-            CREATE TRIGGER IF NOT EXISTS audio_ad AFTER DELETE ON audio_files BEGIN
-                INSERT INTO audio_fts(audio_fts, rowid, filename, tokens, description, category, sub_category, designer)
-                VALUES('delete', old.id, old.filename, old.tokens, old.description, old.category, old.sub_category, old.designer);
+            CREATE TRIGGER audio_ad AFTER DELETE ON audio_files BEGIN
+                INSERT INTO audio_fts(audio_fts, rowid, filename, tokens, pack, folder, description, category, sub_category, designer)
+                VALUES('delete', old.id, old.filename, old.tokens, old.pack, old.folder, old.description, old.category, old.sub_category, old.designer);
             END;
         """)
 
+        conn.execute("DROP TRIGGER IF EXISTS audio_au;")
         conn.execute("""
-            CREATE TRIGGER IF NOT EXISTS audio_au AFTER UPDATE ON audio_files BEGIN
-                INSERT INTO audio_fts(audio_fts, rowid, filename, tokens, description, category, sub_category, designer)
-                VALUES('delete', old.id, old.filename, old.tokens, old.description, old.category, old.sub_category, old.designer);
-                INSERT INTO audio_fts(rowid, filename, tokens, description, category, sub_category, designer)
-                VALUES (new.id, new.filename, new.tokens, new.description, new.category, new.sub_category, new.designer);
+            CREATE TRIGGER audio_au AFTER UPDATE ON audio_files BEGIN
+                INSERT INTO audio_fts(audio_fts, rowid, filename, tokens, pack, folder, description, category, sub_category, designer)
+                VALUES('delete', old.id, old.filename, old.tokens, old.pack, old.folder, old.description, old.category, old.sub_category, old.designer);
+                INSERT INTO audio_fts(rowid, filename, tokens, pack, folder, description, category, sub_category, designer)
+                VALUES (new.id, new.filename, new.tokens, new.pack, new.folder, new.description, new.category, new.sub_category, new.designer);
             END;
         """)
 
         conn.execute("CREATE INDEX IF NOT EXISTS idx_audio_rel_path ON audio_files(rel_path);")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_audio_category ON audio_files(category);")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_audio_pack ON audio_files(pack);")
+
+        # Repopulate FTS index if audio_files has rows
+        conn.execute("""
+            INSERT INTO audio_fts(rowid, filename, tokens, pack, folder, description, category, sub_category, designer)
+            SELECT id, filename, tokens, pack, folder, description, category, sub_category, designer FROM audio_files;
+        """)
+
     conn.close()
