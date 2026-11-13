@@ -1,5 +1,5 @@
 import React from 'react';
-import { Play, Pause, FolderOpen, Copy, Check, Wand2, Repeat, Volume2, VolumeX } from 'lucide-react';
+import { Play, Pause, FolderOpen, Copy, Check, Wand2, Repeat, Volume2, VolumeX, Download } from 'lucide-react';
 
 export interface AudioItem {
   id: number;
@@ -33,6 +33,7 @@ interface AudioPlayerProps {
   revealedId: number | null;
   onCopySMB: (item: AudioItem) => void;
   copiedId: number | null;
+  onDownload: (item: AudioItem) => void;
 }
 
 export const AudioPlayer: React.FC<AudioPlayerProps> = ({
@@ -52,6 +53,7 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({
   revealedId,
   onCopySMB,
   copiedId,
+  onDownload,
 }) => {
   const formatTime = (seconds: number) => {
     if (!seconds || isNaN(seconds)) return '00:00.0';
@@ -89,7 +91,7 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({
             </div>
             <div className="text-[10px] sm:text-xs text-slate-400 truncate leading-snug mt-0.5 flex items-center gap-2">
               <span className="truncate">
-                {currentItem ? currentItem.filename : 'Shortcuts: [Space] Play • [↑/↓] Navigate • [E] Reveal • [C] Copy • [L] Loop'}
+                {currentItem ? currentItem.filename : 'Shortcuts: [Space] Play • [↑/↓] Navigate • [D] Download • [E] Reveal • [C] Copy • [L] Loop'}
               </span>
             </div>
           </div>
@@ -168,6 +170,15 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({
               >
                 {copiedId === currentItem.id ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
                 <span className="hidden md:inline">Copy [C]</span>
+              </button>
+
+              <button
+                onClick={() => onDownload(currentItem)}
+                className="flex items-center gap-1.5 text-xs bg-indigo-950/60 hover:bg-indigo-600/60 text-indigo-200 hover:text-white p-1.5 sm:px-2.5 sm:py-1.5 rounded-lg border border-indigo-700/50 transition cursor-pointer"
+                title="Download original audio file directly in browser [Hotkey: D]"
+              >
+                <Download className="w-3.5 h-3.5" />
+                <span className="hidden md:inline">Download [D]</span>
               </button>
             </div>
           )}
