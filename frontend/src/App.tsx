@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import WaveSurfer from 'wavesurfer.js';
 import { Play, Pause, Search, Volume2, Copy, Check, RefreshCw, Tag, X, Edit2, Wand2, Brain, Square, FolderOpen, Menu } from 'lucide-react';
 import { Logo } from './components/Logo';
+import { AudioPlayer } from './components/AudioPlayer';
 
 interface AudioItem {
   id: number;
@@ -34,6 +35,13 @@ export default function App() {
   const [editValue, setEditValue] = useState('');
   const [listeningId, setListeningId] = useState<number | null>(null);
   const [toastMessage, setToastMessage] = useState<{ title: string; body: string; code: string } | null>(null);
+  const [currentTime, setCurrentTime] = useState(0);
+  const [duration, setDuration] = useState(0);
+  const [isLooping, setIsLooping] = useState(false);
+  const [volume, setVolume] = useState(1.0);
+  const isLoopingRef = useRef(false);
+  isLoopingRef.current = isLooping;
+
   const [aiStatus, setAiStatus] = useState<{ is_running: boolean; total: number; processed: number; last_result: string }>({
     is_running: false,
     total: 0,
@@ -56,12 +64,22 @@ export default function App() {
         barWidth: 2,
         barRadius: 2,
         barGap: 1,
-        height: 60,
+        height: 44,
       });
 
       wavesurfer.current.on('play', () => setIsPlaying(true));
       wavesurfer.current.on('pause', () => setIsPlaying(false));
-      wavesurfer.current.on('finish', () => setIsPlaying(false));
+      wavesurfer.current.on('finish', () => {
+        if (isLoopingRef.current) {
+          wavesurfer.current?.play();
+        } else {
+          setIsPlaying(false);
+        }
+      });
+      wavesurfer.current.on('timeupdate', (t) => setCurrentTime(t));
+      wavesurfer.current.on('ready', () => {
+        setDuration(wavesurfer.current?.getDuration() || 0);
+      });
     }
 
     return () => {
@@ -121,7 +139,10 @@ export default function App() {
       const audioUrl = `/api/stream/${item.id}`;
 
       wavesurfer.current.load(audioUrl, [peaks]);
+      setCurrentTime(0);
+      setDuration(item.duration || 0);
       wavesurfer.current.once('ready', () => {
+        setDuration(wavesurfer.current?.getDuration() || item.duration || 0);
         wavesurfer.current?.play();
       });
     } catch (e) {
@@ -188,6 +209,9 @@ export default function App() {
           e.preventDefault();
           copySMB(item);
         }
+      } else if (e.key.toLowerCase() === 'l' && !e.ctrlKey && !e.metaKey) {
+        e.preventDefault();
+        setIsLooping((prev) => !prev);
       }
     };
 
@@ -662,63 +686,27 @@ export default function App() {
         </div>
 
         {/* Bottom Audio Player Bar */}
-        <div className="min-h-[7rem] md:h-28 border-t border-slate-800 bg-slate-900/95 backdrop-blur p-2.5 sm:p-4 flex flex-col justify-between overflow-hidden w-full max-w-full">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1.5 sm:gap-2 mb-1.5 sm:mb-2 min-w-0 w-full overflow-hidden">
-            <div className="flex items-center gap-2 sm:gap-3 min-w-0 flex-1 overflow-hidden">
-              <button
-                onClick={() => wavesurfer.current?.playPause()}
-                disabled={!selectedId}
-                className="w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-indigo-600 hover:bg-indigo-500 disabled:bg-slate-800 text-white flex items-center justify-center transition shrink-0"
-              >
-                {isPlaying ? <Pause className="w-4 h-4 sm:w-5 sm:h-5" /> : <Play className="w-4 h-4 sm:w-5 sm:h-5 ml-0.5" />}
-              </button>
-              <div className="min-w-0 flex-1 overflow-hidden">
-                <div className="text-xs sm:text-sm font-semibold text-white truncate">
-                  {currentItem ? (currentItem.display_name || currentItem.filename) : 'Select a sound effect to preview'}
-                </div>
-                <div className="text-[10px] sm:text-xs text-slate-400 truncate">
-                  {currentItem ? `${currentItem.filename} • [Space] Play • [E] Reveal • [C] Copy` : 'Shortcuts: [Space] Play, [↑/↓] Navigate, [E] Reveal'}
-                </div>
-              </div>
-            </div>
-
-            {currentItem && (
-              <div className="flex items-center gap-1.5 sm:gap-2 self-end sm:self-auto shrink-0">
-                <button
-                  onClick={() => aiListen(currentItem.id)}
-                  disabled={listeningId === currentItem.id}
-                  className="flex items-center gap-1.5 text-xs bg-slate-800 hover:bg-slate-700 text-amber-300 p-1.5 sm:px-3 sm:py-1.5 rounded-lg border border-slate-700 transition"
-                  title="Detect sound type with AI"
-                >
-                  <Wand2 className={`w-3.5 h-3.5 ${listeningId === currentItem.id ? 'animate-spin' : ''}`} />
-                  <span className="hidden sm:inline">AI Listen</span>
-                </button>
-
-                {/* Reveal in Explorer Button */}
-                <button
-                  onClick={() => copyExplorer(currentItem)}
-                  className="flex items-center gap-1.5 text-xs bg-indigo-900/50 hover:bg-indigo-600/70 text-indigo-200 p-1.5 sm:px-3 sm:py-1.5 rounded-lg border border-indigo-700/50 transition"
-                  title="Copy command to open Windows Explorer with this file selected [Hotkey: E]"
-                >
-                  {revealedId === currentItem.id ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <FolderOpen className="w-3.5 h-3.5" />}
-                  <span className="hidden sm:inline">Reveal [E]</span>
-                </button>
-
-                {/* Copy Raw SMB Path Button */}
-                <button
-                  onClick={() => copySMB(currentItem)}
-                  className="flex items-center gap-1.5 text-xs bg-slate-800 hover:bg-slate-700 text-slate-300 p-1.5 sm:px-3 sm:py-1.5 rounded-lg border border-slate-700 transition"
-                  title="Copy Windows SMB network path [Hotkey: C]"
-                >
-                  {copiedId === currentItem.id ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
-                  <span className="hidden sm:inline">Copy Path [C]</span>
-                </button>
-              </div>
-            )}
-          </div>
-
-          <div ref={waveformRef} className="w-full overflow-hidden" />
-        </div>
+        <AudioPlayer
+          currentItem={currentItem}
+          isPlaying={isPlaying}
+          onPlayPause={() => wavesurfer.current?.playPause()}
+          waveformRef={waveformRef}
+          currentTime={currentTime}
+          duration={duration}
+          isLooping={isLooping}
+          onToggleLoop={() => setIsLooping((prev) => !prev)}
+          volume={volume}
+          onVolumeChange={(v) => {
+            setVolume(v);
+            wavesurfer.current?.setVolume(v);
+          }}
+          onAiListen={aiListen}
+          listeningId={listeningId}
+          onCopyExplorer={copyExplorer}
+          revealedId={revealedId}
+          onCopySMB={copySMB}
+          copiedId={copiedId}
+        />
 
         {/* Toast Notification for Clipboard */}
         {toastMessage && (
