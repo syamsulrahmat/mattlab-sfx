@@ -238,9 +238,10 @@ export default function App() {
 
       // Optional 1-click trigger if user installed the mattlab-reveal protocol
       try {
+        const b64 = btoa(unescape(encodeURIComponent(item.smb_path)));
         const iframe = document.createElement('iframe');
         iframe.style.display = 'none';
-        iframe.src = `mattlab-reveal://${encodeURIComponent(item.smb_path)}`;
+        iframe.src = `mattlab-reveal:${b64}`;
         document.body.appendChild(iframe);
         setTimeout(() => document.body.removeChild(iframe), 2000);
       } catch {

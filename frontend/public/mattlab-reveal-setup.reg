@@ -9,4 +9,4 @@ Windows Registry Editor Version 5.00
 [HKEY_CLASSES_ROOT\mattlab-reveal\shell\open]
 
 [HKEY_CLASSES_ROOT\mattlab-reveal\shell\open\command]
-@="powershell.exe -NoProfile -WindowStyle Hidden -Command \"$raw = [System.Uri]::UnescapeDataString('%1'); $p = $raw -replace '^mattlab-reveal:/{0,2}', ''; Start-Process explorer.exe -ArgumentList @('/select,', $p)\""
+@="powershell.exe -NoProfile -WindowStyle Hidden -Command \"$a = '%1' -replace '^mattlab-reveal:/{0,2}', ''; $u = [System.Uri]::UnescapeDataString($a); try { $p = [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String($u)) } catch { $p = '\\\\' + ($u -replace '/', '\\').TrimStart('\\') }; Start-Process explorer.exe -ArgumentList @('/select,', $p)\""
