@@ -6,6 +6,7 @@ from app.db.database import init_db
 from app.api.routes_search import router as search_router
 from app.api.routes_audio import router as audio_router
 from app.scanner.crawler import scan_library, scan_status
+from app.ai.batch_worker import start_ai_classification, stop_ai_classification, ai_task_status
 
 app = FastAPI(title="MattLab SFX API", version="1.0.0")
 
@@ -33,6 +34,20 @@ def trigger_scan(background_tasks: BackgroundTasks):
 @app.get("/api/scan/status")
 def get_status():
     return scan_status
+
+@app.post("/api/ai/start")
+def start_ai():
+    started = start_ai_classification()
+    return {"status": "started" if started else "already running"}
+
+@app.post("/api/ai/stop")
+def stop_ai():
+    stop_ai_classification()
+    return {"status": "stopped"}
+
+@app.get("/api/ai/status")
+def get_ai_status():
+    return ai_task_status
 
 # Serve frontend production build if present
 frontend_dist = "/app/frontend_dist"

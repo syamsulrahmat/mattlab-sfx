@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import WaveSurfer from 'wavesurfer.js';
-import { Play, Pause, Search, Folder, Volume2, Copy, Check, RefreshCw, Zap, Tag, X, Edit2, Wand2 } from 'lucide-react';
+import { Play, Pause, Search, Volume2, Copy, Check, RefreshCw, Zap, Tag, X, Edit2, Wand2, Brain, Square } from 'lucide-react';
 
 interface AudioItem {
   id: number;
@@ -29,6 +29,12 @@ export default function App() {
   const [editingId, setEditingId] = useState<number | null>(null);
   const [editValue, setEditValue] = useState('');
   const [listeningId, setListeningId] = useState<number | null>(null);
+  const [aiStatus, setAiStatus] = useState<{ is_running: boolean; total: number; processed: number; last_result: string }>({
+    is_running: false,
+    total: 0,
+    processed: 0,
+    last_result: ''
+  });
 
   const waveformRef = useRef<HTMLDivElement>(null);
   const wavesurfer = useRef<WaveSurfer | null>(null);
@@ -71,11 +77,19 @@ export default function App() {
     }
   };
 
-  // Fetch categories
-  const fetchCategories = async () => {
+  // Fetch categories & AI status
+  const fetchAuxData = async () => {
     try {
-      const catRes = await fetch('/api/categories');
+      const [catRes, aiRes] = await Promise.all([
+        fetch('/api/categories'),
+        fetch('/api/ai/status')
+      ]);
       setCategories(await catRes.json());
+      const aiData = await aiRes.json();
+      setAiStatus(aiData);
+      if (aiData.is_running) {
+        fetchResults(query, category);
+      }
     } catch (e) {
       console.error(e);
     }
@@ -86,8 +100,10 @@ export default function App() {
   }, [query, category]);
 
   useEffect(() => {
-    fetchCategories();
-  }, []);
+    fetchAuxData();
+    const interval = setInterval(fetchAuxData, 3000);
+    return () => clearInterval(interval);
+  }, [query, category]);
 
   // Load and play selected track
   const selectTrack = async (item: AudioItem) => {
@@ -108,7 +124,7 @@ export default function App() {
     }
   };
 
-  // Keyboard navigation, playback controls & search shortcut
+  // Keyboard navigation & shortcuts
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       const isInput = document.activeElement === searchInputRef.current || editingId !== null;
@@ -206,12 +222,21 @@ export default function App() {
     }
   };
 
+  const toggleBatchAi = async () => {
+    if (aiStatus.is_running) {
+      await fetch('/api/ai/stop', { method: 'POST' });
+    } else {
+      await fetch('/api/ai/start', { method: 'POST' });
+    }
+    fetchAuxData();
+  };
+
   const triggerScan = async () => {
     setScanning(true);
     await fetch('/api/scan', { method: 'POST' });
     setTimeout(() => {
       fetchResults(query, category);
-      fetchCategories();
+      fetchAuxData();
       setScanning(false);
     }, 2000);
   };
@@ -225,6 +250,42 @@ export default function App() {
         <div className="flex items-center gap-2 mb-4 px-2">
           <Zap className="w-6 h-6 text-indigo-400" />
           <h1 className="text-xl font-bold tracking-tight text-white">MattLab SFX</h1>
+        </div>
+
+        {/* AI Batch Processor Card */}
+        <div className="bg-slate-800/70 border border-slate-700 rounded-lg p-3 mb-4">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-xs font-semibold text-amber-300 flex items-center gap-1.5">
+              <Brain className="w-3.5 h-3.5" />
+              AI Auto-Classifier
+            </span>
+            <button
+              onClick={toggleBatchAi}
+              className={`p-1 rounded text-xs transition ${
+                aiStatus.is_running
+                  ? 'bg-rose-600/80 hover:bg-rose-500 text-white'
+                  : 'bg-amber-600/80 hover:bg-amber-500 text-white'
+              }`}
+              title={aiStatus.is_running ? 'Pause batch AI' : 'Start classifying all hash files'}
+            >
+              {aiStatus.is_running ? <Square className="w-3 h-3" /> : <Play className="w-3 h-3 ml-0.5" />}
+            </button>
+          </div>
+          <div className="text-[11px] text-slate-400">
+            {aiStatus.is_running
+              ? `Listening: ${aiStatus.processed} / ${aiStatus.total}`
+              : 'Classify cryptic hashes into real sound names'}
+          </div>
+          {aiStatus.is_running && (
+            <div className="w-full bg-slate-700 h-1.5 rounded-full overflow-hidden mt-2">
+              <div
+                className="bg-amber-400 h-full transition-all duration-300"
+                style={{
+                  width: `${aiStatus.total ? (aiStatus.processed / aiStatus.total) * 100 : 0}%`
+                }}
+              />
+            </div>
+          )}
         </div>
 
         <button
