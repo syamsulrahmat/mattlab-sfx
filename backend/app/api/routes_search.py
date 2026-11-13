@@ -7,10 +7,21 @@ router = APIRouter()
 SFX_DIR = os.environ.get("SFX_DIR", "/sfx")
 SMB_BASE_PATH = os.environ.get("SMB_BASE_PATH", r"\\MATTLAB\Assets\Sound effects")
 
+SORT_COLUMNS = {
+    "name": "LOWER(COALESCE(NULLIF(a.display_name, ''), a.filename))",
+    "duration": "a.duration",
+    "category": "a.category",
+    "sample_rate": "a.sample_rate",
+    "id": "a.id",
+    "rank": "rank"
+}
+
 @router.get("/search")
 def search_sfx(
     q: str = Query("", description="Search query terms"),
     category: str = Query("", description="UCS Category Filter"),
+    sort_by: str = Query("default", description="Sort field: default, name, duration, category, sample_rate, id, rank"),
+    sort_order: str = Query("asc", description="Sort direction: asc or desc"),
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0)
 ):
@@ -18,6 +29,7 @@ def search_sfx(
     try:
         terms = q.strip().replace('"', '""')
         params = []
+        direction = "DESC" if sort_order.lower() == "desc" else "ASC"
         
         if terms:
             fts_query = " ".join([f'"{t}"*' for t in terms.split()])
@@ -32,8 +44,14 @@ def search_sfx(
             if category:
                 base_sql += " AND a.category = ?"
                 params.append(category)
-                
-            base_sql += " ORDER BY rank LIMIT ? OFFSET ?"
+
+            if sort_by in ("default", "rank"):
+                order_clause = "ORDER BY rank ASC"
+            else:
+                col = SORT_COLUMNS.get(sort_by, "rank")
+                order_clause = f"ORDER BY {col} {direction}"
+
+            base_sql += f" {order_clause} LIMIT ? OFFSET ?"
             params.extend([limit, offset])
         else:
             base_sql = "SELECT * FROM audio_files"
@@ -45,7 +63,15 @@ def search_sfx(
             if conditions:
                 base_sql += " WHERE " + " AND ".join(conditions)
 
-            base_sql += " ORDER BY id DESC LIMIT ? OFFSET ?"
+            if sort_by in ("default", "name"):
+                order_clause = f"ORDER BY LOWER(COALESCE(NULLIF(display_name, ''), filename)) {direction}"
+            elif sort_by == "id":
+                order_clause = f"ORDER BY id {direction}"
+            else:
+                col = SORT_COLUMNS.get(sort_by, "id").replace("a.", "")
+                order_clause = f"ORDER BY {col} {direction}"
+
+            base_sql += f" {order_clause} LIMIT ? OFFSET ?"
             params.extend([limit, offset])
 
         cursor = conn.execute(base_sql, params)
