@@ -49,6 +49,25 @@ async def stream_audio(file_id: int, request: Request):
 
     return FileResponse(file_path)
 
+@router.get("/download/{file_id}")
+def download_audio(file_id: int):
+    conn = get_db()
+    row = conn.execute("SELECT filename, display_name, rel_path FROM audio_files WHERE id = ?", [file_id]).fetchone()
+    conn.close()
+    
+    if not row:
+        raise HTTPException(status_code=404, detail="Audio file not found")
+        
+    file_path = os.path.join(SFX_DIR, row["rel_path"])
+    if not os.path.exists(file_path):
+        raise HTTPException(status_code=404, detail="File missing on disk")
+
+    return FileResponse(
+        path=file_path,
+        filename=row["filename"],
+        media_type="application/octet-stream"
+    )
+
 @router.get("/peaks/{file_id}")
 def get_peaks(file_id: int):
     conn = get_db()

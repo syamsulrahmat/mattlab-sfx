@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import WaveSurfer from 'wavesurfer.js';
-import { Play, Pause, Search, Volume2, Copy, Check, RefreshCw, Tag, X, Edit2, Wand2, Brain, Square, FolderOpen, Menu, ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react';
+import { Play, Pause, Search, Volume2, Copy, Check, RefreshCw, Tag, X, Edit2, Wand2, Brain, Square, FolderOpen, Menu, ArrowUpDown, ArrowUp, ArrowDown, Download } from 'lucide-react';
 import { Logo } from './components/Logo';
 import { AudioPlayer } from './components/AudioPlayer';
 
@@ -225,12 +225,27 @@ export default function App() {
       } else if (e.key.toLowerCase() === 'l' && !e.ctrlKey && !e.metaKey) {
         e.preventDefault();
         setIsLooping((prev) => !prev);
+      } else if (e.key.toLowerCase() === 'd' && !e.ctrlKey && !e.metaKey) {
+        const item = results.find((r) => r.id === selectedId);
+        if (item) {
+          e.preventDefault();
+          downloadAudio(item);
+        }
       }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [results, selectedId, editingId]);
+
+  const downloadAudio = (item: AudioItem) => {
+    const link = document.createElement('a');
+    link.href = `/api/download/${item.id}`;
+    link.download = item.filename;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
 
   const copyToClipboard = async (text: string): Promise<boolean> => {
     // 1. Try modern navigator.clipboard if in a secure context
@@ -634,7 +649,7 @@ export default function App() {
                     )}
                   </button>
                 </th>
-                <th className="py-2.5 px-2 sm:px-4 w-20 sm:w-24 text-right shrink-0">Actions</th>
+                <th className="py-2.5 px-2 sm:px-4 w-28 sm:w-32 text-right shrink-0">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-800/50">
@@ -764,6 +779,18 @@ export default function App() {
                         >
                           {copiedId === item.id ? <Check className="w-4 h-4 text-emerald-400" /> : <Copy className="w-4 h-4" />}
                         </button>
+
+                        {/* Direct Browser Download */}
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            downloadAudio(item);
+                          }}
+                          title={`Download audio file to browser [Hotkey: D]:\n${item.filename}`}
+                          className="p-1.5 rounded bg-slate-800 hover:bg-slate-700 text-indigo-300 hover:text-white transition cursor-pointer"
+                        >
+                          <Download className="w-4 h-4" />
+                        </button>
                       </div>
                     </td>
                   </tr>
@@ -794,6 +821,7 @@ export default function App() {
           revealedId={revealedId}
           onCopySMB={copySMB}
           copiedId={copiedId}
+          onDownload={downloadAudio}
         />
 
         {/* Toast Notification for Clipboard */}
