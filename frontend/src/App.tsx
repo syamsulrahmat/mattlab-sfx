@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import WaveSurfer from 'wavesurfer.js';
-import { Play, Pause, Search, Volume2, Copy, Check, RefreshCw, Zap, Tag, X, Edit2, Wand2, Brain, Square, FolderOpen, Menu } from 'lucide-react';
+import { Play, Pause, Search, Volume2, Copy, Check, RefreshCw, Tag, X, Edit2, Wand2, Brain, Square, FolderOpen, Menu } from 'lucide-react';
+import { Logo } from './components/Logo';
 
 interface AudioItem {
   id: number;
@@ -349,10 +350,7 @@ export default function App() {
         }`}
       >
         <div className="flex items-center justify-between mb-4 px-2">
-          <div className="flex items-center gap-2">
-            <Zap className="w-6 h-6 text-indigo-400" />
-            <h1 className="text-xl font-bold tracking-tight text-white">MattLab SFX</h1>
-          </div>
+          <Logo size={30} showText={true} />
           {/* Mobile Close Button */}
           <button
             onClick={() => setSidebarOpen(false)}
@@ -462,6 +460,10 @@ export default function App() {
             >
               <Menu className="w-5 h-5" />
             </button>
+
+            <div className="md:hidden shrink-0">
+              <Logo size={26} />
+            </div>
 
             <div className="relative flex-1 min-w-0">
               <Search className="absolute left-3 top-2.5 w-4 h-4 sm:w-5 sm:h-5 text-slate-400" />
