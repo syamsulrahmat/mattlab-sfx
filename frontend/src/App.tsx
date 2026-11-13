@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import WaveSurfer from 'wavesurfer.js';
-import { Play, Pause, Search, Volume2, Copy, Check, RefreshCw, Zap, Tag, X, Edit2, Wand2, Brain, Square, FolderOpen } from 'lucide-react';
+import { Play, Pause, Search, Volume2, Copy, Check, RefreshCw, Zap, Tag, X, Edit2, Wand2, Brain, Square, FolderOpen, Menu } from 'lucide-react';
 
 interface AudioItem {
   id: number;
@@ -26,6 +26,7 @@ export default function App() {
   const [isPlaying, setIsPlaying] = useState(false);
   const [copiedId, setCopiedId] = useState<number | null>(null);
   const [revealedId, setRevealedId] = useState<number | null>(null);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
   const [scanning, setScanning] = useState(false);
   const [categories, setCategories] = useState<{ category: string; sub_category: string; count: number }[]>([]);
   const [editingId, setEditingId] = useState<number | null>(null);
@@ -332,11 +333,33 @@ export default function App() {
 
   return (
     <div className="flex h-screen bg-slate-950 text-slate-100 font-sans overflow-hidden">
-      {/* Sidebar: Categories */}
-      <div className="w-64 bg-slate-900 border-r border-slate-800 flex flex-col p-4">
-        <div className="flex items-center gap-2 mb-4 px-2">
-          <Zap className="w-6 h-6 text-indigo-400" />
-          <h1 className="text-xl font-bold tracking-tight text-white">MattLab SFX</h1>
+      {/* Mobile Drawer Backdrop */}
+      {sidebarOpen && (
+        <div
+          onClick={() => setSidebarOpen(false)}
+          className="fixed inset-0 bg-black/60 backdrop-blur-sm z-40 md:hidden animate-in fade-in duration-200"
+        />
+      )}
+
+      {/* Sidebar: Categories (Desktop Pinned + Mobile Slide-over Drawer) */}
+      <div
+        className={`fixed inset-y-0 left-0 z-50 w-72 bg-slate-900 border-r border-slate-800 flex flex-col p-4 transition-transform duration-300 ease-in-out md:static md:w-64 md:translate-x-0 ${
+          sidebarOpen ? 'translate-x-0 shadow-2xl' : '-translate-x-full'
+        }`}
+      >
+        <div className="flex items-center justify-between mb-4 px-2">
+          <div className="flex items-center gap-2">
+            <Zap className="w-6 h-6 text-indigo-400" />
+            <h1 className="text-xl font-bold tracking-tight text-white">MattLab SFX</h1>
+          </div>
+          {/* Mobile Close Button */}
+          <button
+            onClick={() => setSidebarOpen(false)}
+            className="md:hidden p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition"
+            title="Close sidebar"
+          >
+            <X className="w-5 h-5" />
+          </button>
         </div>
 
         {/* AI Batch Processor Card */}
@@ -397,7 +420,10 @@ export default function App() {
         {/* Categories List */}
         <div className="flex-1 overflow-y-auto space-y-1 pr-1">
           <button
-            onClick={() => setCategory('')}
+            onClick={() => {
+              setCategory('');
+              setSidebarOpen(false);
+            }}
             className={`w-full text-left px-3 py-1.5 rounded-md text-sm transition ${
               category === '' ? 'bg-indigo-600/20 text-indigo-300 font-medium' : 'text-slate-400 hover:bg-slate-800'
             }`}
@@ -407,7 +433,10 @@ export default function App() {
           {categories.map((c) => (
             <button
               key={c.category}
-              onClick={() => setCategory(category === c.category ? '' : c.category)}
+              onClick={() => {
+                setCategory(category === c.category ? '' : c.category);
+                setSidebarOpen(false);
+              }}
               className={`w-full flex items-center justify-between px-3 py-1.5 rounded-md text-sm transition ${
                 category === c.category ? 'bg-indigo-600/20 text-indigo-300 font-medium' : 'text-slate-400 hover:bg-slate-800'
               }`}
@@ -422,24 +451,33 @@ export default function App() {
       {/* Main Content Area */}
       <div className="flex-1 flex flex-col min-w-0">
         {/* Top Search Header */}
-        <div className="p-4 border-b border-slate-800 bg-slate-900/40 flex flex-col gap-2">
-          <div className="flex items-center gap-4">
-            <div className="relative flex-1">
-              <Search className="absolute left-3.5 top-2.5 w-5 h-5 text-slate-400" />
+        <div className="p-3 sm:p-4 border-b border-slate-800 bg-slate-900/40 flex flex-col gap-2">
+          <div className="flex items-center gap-2 sm:gap-4">
+            {/* Hamburger Button for Mobile Drawer */}
+            <button
+              onClick={() => setSidebarOpen(true)}
+              className="md:hidden p-2 rounded-lg bg-slate-800 text-slate-300 hover:text-white hover:bg-slate-700 transition shrink-0"
+              title="Open Categories & AI Status"
+            >
+              <Menu className="w-5 h-5" />
+            </button>
+
+            <div className="relative flex-1 min-w-0">
+              <Search className="absolute left-3 top-2.5 w-4 h-4 sm:w-5 sm:h-5 text-slate-400" />
               <input
                 ref={searchInputRef}
                 type="text"
-                placeholder={`Search ${roundedLibraryApprox}+ sound effects (e.g. explosion, whoosh, zipper, electric)...`}
+                placeholder={`Search ${roundedLibraryApprox}+ sound effects...`}
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
-                className="w-full bg-slate-800/80 border border-slate-700 rounded-lg pl-11 pr-24 py-2 text-sm text-white placeholder-slate-400 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
+                className="w-full bg-slate-800/80 border border-slate-700 rounded-lg pl-9 sm:pl-11 pr-3 sm:pr-24 py-2 text-xs sm:text-sm text-white placeholder-slate-400 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 truncate"
               />
-              <div className="absolute right-3 top-2.5 flex items-center gap-1">
+              <div className="hidden sm:flex absolute right-3 top-2.5 items-center gap-1">
                 <kbd className="px-1.5 py-0.5 text-[10px] font-mono text-slate-400 bg-slate-700/60 rounded border border-slate-600">/</kbd>
                 <kbd className="px-1.5 py-0.5 text-[10px] font-mono text-slate-400 bg-slate-700/60 rounded border border-slate-600">Ctrl+K</kbd>
               </div>
             </div>
-            <div className="text-xs text-slate-400 whitespace-nowrap">
+            <div className="text-xs text-slate-400 whitespace-nowrap shrink-0">
               <span className="font-semibold text-slate-200">
                 {query || category ? `${total.toLocaleString()} of ${totalLibraryCount.toLocaleString()}` : totalLibraryCount.toLocaleString()}
               </span> sounds
@@ -466,12 +504,12 @@ export default function App() {
           <table className="w-full text-left text-sm">
             <thead className="bg-slate-900/60 text-slate-400 text-xs uppercase sticky top-0 backdrop-blur z-10 border-b border-slate-800">
               <tr>
-                <th className="py-2.5 px-4 w-12">Play</th>
-                <th className="py-2.5 px-4">Sound Effect Name</th>
-                <th className="py-2.5 px-4">Category</th>
-                <th className="py-2.5 px-4">Duration</th>
-                <th className="py-2.5 px-4">Sample Rate</th>
-                <th className="py-2.5 px-4 text-right">Actions</th>
+                <th className="py-2.5 px-3 sm:px-4 w-10 sm:w-12">Play</th>
+                <th className="py-2.5 px-3 sm:px-4">Sound Effect Name</th>
+                <th className="py-2.5 px-4 hidden sm:table-cell">Category</th>
+                <th className="py-2.5 px-4 hidden md:table-cell">Duration</th>
+                <th className="py-2.5 px-4 hidden lg:table-cell">Sample Rate</th>
+                <th className="py-2.5 px-3 sm:px-4 text-right">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-800/50">
@@ -488,7 +526,7 @@ export default function App() {
                       isSelected ? 'bg-indigo-950/40 border-l-2 border-indigo-500' : 'hover:bg-slate-900/50'
                     }`}
                   >
-                    <td className="py-2.5 px-4">
+                    <td className="py-2.5 px-3 sm:px-4">
                       <button
                         onClick={(e) => {
                           e.stopPropagation();
@@ -503,8 +541,8 @@ export default function App() {
                         {isSelected && isPlaying ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4 ml-0.5" />}
                       </button>
                     </td>
-                    <td className="py-2.5 px-4 font-medium text-slate-200">
-                      <div className="flex items-center gap-2">
+                    <td className="py-2.5 px-3 sm:px-4 font-medium text-slate-200 min-w-0">
+                      <div className="flex items-center gap-1.5 sm:gap-2">
                         {isEditing ? (
                           <input
                             type="text"
@@ -517,7 +555,7 @@ export default function App() {
                               if (e.key === 'Escape') setEditingId(null);
                             }}
                             onBlur={() => saveCustomName(item.id)}
-                            className="bg-slate-800 border border-indigo-500 rounded px-2 py-0.5 text-sm text-white focus:outline-none"
+                            className="bg-slate-800 border border-indigo-500 rounded px-2 py-0.5 text-xs sm:text-sm text-white focus:outline-none w-full max-w-sm"
                           />
                         ) : (
                           <span
@@ -526,7 +564,7 @@ export default function App() {
                               setEditingId(item.id);
                               setEditValue(item.display_name || item.filename);
                             }}
-                            className="font-semibold text-slate-100 hover:text-indigo-300 transition"
+                            className="font-semibold text-slate-100 hover:text-indigo-300 transition truncate block text-xs sm:text-sm"
                             title="Double-click to rename"
                           >
                             {item.display_name || item.filename}
@@ -540,7 +578,7 @@ export default function App() {
                             setEditingId(item.id);
                             setEditValue(item.display_name || item.filename);
                           }}
-                          className="opacity-40 group-hover:opacity-100 hover:text-indigo-400 text-slate-400 p-1 rounded hover:bg-slate-800 transition"
+                          className="opacity-40 group-hover:opacity-100 hover:text-indigo-400 text-slate-400 p-1 rounded hover:bg-slate-800 transition shrink-0"
                           title="Rename sound in app"
                         >
                           <Edit2 className="w-3.5 h-3.5" />
@@ -553,7 +591,7 @@ export default function App() {
                             aiListen(item.id);
                           }}
                           disabled={isListening}
-                          className="opacity-40 group-hover:opacity-100 hover:text-amber-400 text-slate-400 p-1 rounded hover:bg-slate-800 transition"
+                          className="opacity-40 group-hover:opacity-100 hover:text-amber-400 text-slate-400 p-1 rounded hover:bg-slate-800 transition shrink-0"
                           title="AI Listen: Detect sound type from audio waveform"
                         >
                           <Wand2 className={`w-3.5 h-3.5 ${isListening ? 'animate-spin text-amber-400' : ''}`} />
@@ -561,19 +599,23 @@ export default function App() {
                       </div>
 
                       {/* Subtitle: Original filename */}
-                      <div className="text-xs text-slate-400 flex items-center gap-2 mt-0.5">
-                        <span className="font-mono text-slate-500">{item.filename}</span>
+                      <div className="text-[11px] sm:text-xs text-slate-400 flex items-center gap-2 mt-0.5">
+                        <span className="font-mono text-slate-500 truncate max-w-[200px] sm:max-w-none">{item.filename}</span>
+                        {/* Mobile category badge */}
+                        <span className="sm:hidden text-[10px] bg-slate-800 text-slate-400 px-1.5 py-0.5 rounded shrink-0">
+                          {item.sub_category || item.category}
+                        </span>
                       </div>
                     </td>
-                    <td className="py-2.5 px-4">
+                    <td className="py-2.5 px-4 hidden sm:table-cell">
                       <span className="inline-block bg-slate-800 text-slate-300 text-xs px-2 py-0.5 rounded">
                         {item.sub_category || item.category}
                       </span>
                     </td>
-                    <td className="py-2.5 px-4 text-slate-400">{item.duration ? `${item.duration}s` : '-'}</td>
-                    <td className="py-2.5 px-4 text-slate-400">{item.sample_rate ? `${item.sample_rate} Hz` : '-'}</td>
-                    <td className="py-2.5 px-4 text-right">
-                      <div className="flex items-center justify-end gap-1.5">
+                    <td className="py-2.5 px-4 text-slate-400 hidden md:table-cell">{item.duration ? `${item.duration}s` : '-'}</td>
+                    <td className="py-2.5 px-4 text-slate-400 hidden lg:table-cell">{item.sample_rate ? `${item.sample_rate} Hz` : '-'}</td>
+                    <td className="py-2.5 px-3 sm:px-4 text-right">
+                      <div className="flex items-center justify-end gap-1 sm:gap-1.5">
                         {/* Reveal & Select in Explorer (Win+R command / E hotkey) */}
                         <button
                           onClick={(e) => {
@@ -607,56 +649,56 @@ export default function App() {
         </div>
 
         {/* Bottom Audio Player Bar */}
-        <div className="h-28 border-t border-slate-800 bg-slate-900/90 backdrop-blur p-4 flex flex-col justify-between">
-          <div className="flex items-center justify-between mb-2">
-            <div className="flex items-center gap-3">
+        <div className="min-h-[7rem] md:h-28 border-t border-slate-800 bg-slate-900/95 backdrop-blur p-3 sm:p-4 flex flex-col justify-between">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-2">
+            <div className="flex items-center gap-3 min-w-0">
               <button
                 onClick={() => wavesurfer.current?.playPause()}
                 disabled={!selectedId}
-                className="w-10 h-10 rounded-full bg-indigo-600 hover:bg-indigo-500 disabled:bg-slate-800 text-white flex items-center justify-center transition"
+                className="w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-indigo-600 hover:bg-indigo-500 disabled:bg-slate-800 text-white flex items-center justify-center transition shrink-0"
               >
-                {isPlaying ? <Pause className="w-5 h-5" /> : <Play className="w-5 h-5 ml-0.5" />}
+                {isPlaying ? <Pause className="w-4 h-4 sm:w-5 sm:h-5" /> : <Play className="w-4 h-4 sm:w-5 sm:h-5 ml-0.5" />}
               </button>
-              <div>
-                <div className="text-sm font-semibold text-white">
+              <div className="min-w-0 flex-1">
+                <div className="text-xs sm:text-sm font-semibold text-white truncate">
                   {currentItem ? (currentItem.display_name || currentItem.filename) : 'Select a sound effect to preview'}
                 </div>
-                <div className="text-xs text-slate-400">
-                  {currentItem ? `${currentItem.filename} • [Space] Play • [↑/↓] Navigate • [E] Reveal in Explorer • [C] Copy Path` : 'Shortcut keys: [Space] Play, [↑/↓] Navigate, [E] Reveal in Explorer, [/] Search'}
+                <div className="text-[11px] sm:text-xs text-slate-400 truncate">
+                  {currentItem ? `${currentItem.filename} • [Space] Play • [E] Reveal • [C] Copy` : 'Shortcuts: [Space] Play, [↑/↓] Navigate, [E] Reveal'}
                 </div>
               </div>
             </div>
 
             {currentItem && (
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-1.5 sm:gap-2 self-end sm:self-auto shrink-0">
                 <button
                   onClick={() => aiListen(currentItem.id)}
                   disabled={listeningId === currentItem.id}
-                  className="flex items-center gap-1.5 text-xs bg-slate-800 hover:bg-slate-700 text-amber-300 px-3 py-1.5 rounded-lg border border-slate-700 transition"
+                  className="flex items-center gap-1.5 text-xs bg-slate-800 hover:bg-slate-700 text-amber-300 p-1.5 sm:px-3 sm:py-1.5 rounded-lg border border-slate-700 transition"
                   title="Detect sound type with AI"
                 >
                   <Wand2 className={`w-3.5 h-3.5 ${listeningId === currentItem.id ? 'animate-spin' : ''}`} />
-                  AI Listen
+                  <span className="hidden sm:inline">AI Listen</span>
                 </button>
 
                 {/* Reveal in Explorer Button */}
                 <button
                   onClick={() => copyExplorer(currentItem)}
-                  className="flex items-center gap-1.5 text-xs bg-indigo-900/50 hover:bg-indigo-600/70 text-indigo-200 px-3 py-1.5 rounded-lg border border-indigo-700/50 transition"
+                  className="flex items-center gap-1.5 text-xs bg-indigo-900/50 hover:bg-indigo-600/70 text-indigo-200 p-1.5 sm:px-3 sm:py-1.5 rounded-lg border border-indigo-700/50 transition"
                   title="Copy command to open Windows Explorer with this file selected [Hotkey: E]"
                 >
                   {revealedId === currentItem.id ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <FolderOpen className="w-3.5 h-3.5" />}
-                  Reveal in Explorer [E]
+                  <span className="hidden sm:inline">Reveal [E]</span>
                 </button>
 
                 {/* Copy Raw SMB Path Button */}
                 <button
                   onClick={() => copySMB(currentItem)}
-                  className="flex items-center gap-1.5 text-xs bg-slate-800 hover:bg-slate-700 text-slate-300 px-3 py-1.5 rounded-lg border border-slate-700 transition"
+                  className="flex items-center gap-1.5 text-xs bg-slate-800 hover:bg-slate-700 text-slate-300 p-1.5 sm:px-3 sm:py-1.5 rounded-lg border border-slate-700 transition"
                   title="Copy Windows SMB network path [Hotkey: C]"
                 >
                   {copiedId === currentItem.id ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
-                  Copy SMB Path [C]
+                  <span className="hidden sm:inline">Copy Path [C]</span>
                 </button>
               </div>
             )}
@@ -667,7 +709,7 @@ export default function App() {
 
         {/* Toast Notification for Clipboard */}
         {toastMessage && (
-          <div className="fixed bottom-32 right-6 z-50 bg-slate-900/95 border border-indigo-500/60 shadow-2xl rounded-xl p-4 flex items-start gap-3 text-slate-100 text-xs max-w-lg backdrop-blur animate-in fade-in slide-in-from-bottom-2 duration-200">
+          <div className="fixed bottom-28 inset-x-4 sm:inset-x-auto sm:right-6 z-50 bg-slate-900/95 border border-indigo-500/60 shadow-2xl rounded-xl p-3 sm:p-4 flex items-start gap-3 text-slate-100 text-xs sm:max-w-lg backdrop-blur animate-in fade-in slide-in-from-bottom-2 duration-200">
             <Check className="w-5 h-5 text-emerald-400 shrink-0 mt-0.5" />
             <div className="flex-1 min-w-0">
               <div className="font-semibold text-white mb-0.5">{toastMessage.title}</div>
@@ -676,13 +718,13 @@ export default function App() {
                 {toastMessage.code}
               </div>
               <div className="text-[10px] text-slate-400 flex items-center gap-1.5">
-                <span>Want 1-click reveal without Win+R?</span>
+                <span>Want 1-click reveal?</span>
                 <a
                   href="/mattlab-reveal-setup.reg"
                   download
                   className="text-indigo-400 hover:text-indigo-300 underline font-medium"
                 >
-                  Download Windows 1-Click .reg setup
+                  Download .reg setup
                 </a>
               </div>
             </div>
