@@ -324,13 +324,24 @@ export default function App() {
 
   const currentItem = results.find((r) => r.id === selectedId);
 
+  // Dynamic total library count & rounded representation
+  const totalLibraryCount = categories.reduce((acc, c) => acc + c.count, 0) || aiStatus.total || total;
+  const roundedLibraryApprox = totalLibraryCount > 0 
+    ? (Math.round(totalLibraryCount / 1000) * 1000).toLocaleString() 
+    : '30,000';
+
   return (
     <div className="flex h-screen bg-slate-950 text-slate-100 font-sans overflow-hidden">
       {/* Sidebar: Categories */}
       <div className="w-64 bg-slate-900 border-r border-slate-800 flex flex-col p-4">
-        <div className="flex items-center gap-2 mb-4 px-2">
-          <Zap className="w-6 h-6 text-indigo-400" />
-          <h1 className="text-xl font-bold tracking-tight text-white">MattLab SFX</h1>
+        <div className="mb-4 px-2">
+          <div className="flex items-center gap-2">
+            <Zap className="w-6 h-6 text-indigo-400" />
+            <h1 className="text-xl font-bold tracking-tight text-white">MattLab SFX</h1>
+          </div>
+          <div className="text-[11px] text-slate-400 font-medium ml-8 -mt-0.5">
+            {roundedLibraryApprox}+ Sounds Library
+          </div>
         </div>
 
         {/* AI Batch Processor Card */}
@@ -423,7 +434,7 @@ export default function App() {
               <input
                 ref={searchInputRef}
                 type="text"
-                placeholder="Search 33,000+ sound effects (e.g. explosion, whoosh, zipper, electric)..."
+                placeholder={`Search ${roundedLibraryApprox}+ sound effects (e.g. explosion, whoosh, zipper, electric)...`}
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
                 className="w-full bg-slate-800/80 border border-slate-700 rounded-lg pl-11 pr-24 py-2 text-sm text-white placeholder-slate-400 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
@@ -434,7 +445,9 @@ export default function App() {
               </div>
             </div>
             <div className="text-xs text-slate-400 whitespace-nowrap">
-              <span className="font-semibold text-slate-200">{total}</span> sounds
+              <span className="font-semibold text-slate-200">
+                {query || category ? `${total.toLocaleString()} of ${totalLibraryCount.toLocaleString()}` : totalLibraryCount.toLocaleString()}
+              </span> sounds
             </div>
           </div>
 
