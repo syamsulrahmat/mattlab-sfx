@@ -376,7 +376,7 @@ export default function App() {
                   <tr
                     key={item.id}
                     onClick={() => selectTrack(item)}
-                    className={`cursor-pointer transition ${
+                    className={`group cursor-pointer transition ${
                       isSelected ? 'bg-indigo-950/40 border-l-2 border-indigo-500' : 'hover:bg-slate-900/50'
                     }`}
                   >
@@ -431,10 +431,10 @@ export default function App() {
                             setEditingId(item.id);
                             setEditValue(item.display_name || item.filename);
                           }}
-                          className="opacity-0 group-hover:opacity-100 hover:opacity-100 text-slate-500 hover:text-slate-300 p-0.5 rounded transition"
-                          title="Rename sound in app"
+                          className="opacity-40 group-hover:opacity-100 hover:text-indigo-400 text-slate-400 p-1 rounded hover:bg-slate-800 transition"
+                          title="Rename sound in app (or double-click text)"
                         >
-                          <Edit2 className="w-3 h-3" />
+                          <Edit2 className="w-3.5 h-3.5" />
                         </button>
 
                         {item.pack && (
