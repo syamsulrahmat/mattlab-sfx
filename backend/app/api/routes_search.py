@@ -117,22 +117,23 @@ def update_display_name(file_id: int, payload: dict = Body(...)):
 @router.post("/audio/{file_id}/ai-listen")
 def ai_listen_audio(file_id: int):
     conn = get_db()
-    row = conn.execute("SELECT rel_path FROM audio_files WHERE id = ?", [file_id]).fetchone()
+    row = conn.execute("SELECT rel_path, filename FROM audio_files WHERE id = ?", [file_id]).fetchone()
     if not row:
         conn.close()
         raise HTTPException(status_code=404, detail="Audio file not found")
 
     file_path = os.path.join(SFX_DIR, row["rel_path"])
-    predicted_name = predict_smart_name(file_path)
+    predicted_name, is_music = predict_smart_name(file_path, row["filename"])
     predictions = classify_audio_sound(file_path, top_k=3)
 
     with conn:
-        conn.execute("UPDATE audio_files SET display_name = ? WHERE id = ?", (predicted_name, file_id))
+        conn.execute("UPDATE audio_files SET display_name = ?, is_classified = 1 WHERE id = ?", (predicted_name, file_id))
     conn.close()
 
     return {
         "status": "success",
         "id": file_id,
         "display_name": predicted_name,
+        "is_music": is_music,
         "predictions": predictions
     }

@@ -257,7 +257,7 @@ export default function App() {
           <div className="flex items-center justify-between mb-2">
             <span className="text-xs font-semibold text-amber-300 flex items-center gap-1.5">
               <Brain className="w-3.5 h-3.5" />
-              AI Auto-Classifier
+              AI Acoustic Renaming
             </span>
             <button
               onClick={toggleBatchAi}
@@ -266,7 +266,7 @@ export default function App() {
                   ? 'bg-rose-600/80 hover:bg-rose-500 text-white'
                   : 'bg-amber-600/80 hover:bg-amber-500 text-white'
               }`}
-              title={aiStatus.is_running ? 'Pause batch AI' : 'Start classifying all hash files'}
+              title={aiStatus.is_running ? 'Pause batch acoustic renaming' : 'Start unified acoustic renaming for whole library'}
             >
               {aiStatus.is_running ? <Square className="w-3 h-3" /> : <Play className="w-3 h-3 ml-0.5" />}
             </button>
@@ -274,7 +274,7 @@ export default function App() {
           <div className="text-[11px] text-slate-400">
             {aiStatus.is_running
               ? `Listening: ${aiStatus.processed} / ${aiStatus.total}`
-              : 'Classify cryptic hashes into real sound names'}
+              : `Unified renaming: ${aiStatus.processed || 0} / ${aiStatus.total || 0} classified`}
           </div>
           {aiStatus.is_running && (
             <div className="w-full bg-slate-700 h-1.5 rounded-full overflow-hidden mt-2">
@@ -284,6 +284,11 @@ export default function App() {
                   width: `${aiStatus.total ? (aiStatus.processed / aiStatus.total) * 100 : 0}%`
                 }}
               />
+            </div>
+          )}
+          {aiStatus.last_result && (
+            <div className="text-[10px] text-amber-400/80 truncate mt-1.5">
+              Latest: {aiStatus.last_result}
             </div>
           )}
         </div>

@@ -49,6 +49,8 @@ def init_db():
             conn.execute("ALTER TABLE audio_files ADD COLUMN folder TEXT DEFAULT '';")
         if "display_name" not in cols:
             conn.execute("ALTER TABLE audio_files ADD COLUMN display_name TEXT DEFAULT '';")
+        if "is_classified" not in cols:
+            conn.execute("ALTER TABLE audio_files ADD COLUMN is_classified INTEGER DEFAULT 0;")
         
         # Virtual table for Sub-millisecond Full-Text Search
         conn.execute("DROP TABLE IF EXISTS audio_fts;")
