@@ -1,14 +1,12 @@
 import React, { useState, useEffect, useRef } from 'react';
 import WaveSurfer from 'wavesurfer.js';
-import { Play, Pause, Search, Folder, Volume2, Copy, Check, RefreshCw, Zap, Layers, Tag, X, Edit2 } from 'lucide-react';
+import { Play, Pause, Search, Folder, Volume2, Copy, Check, RefreshCw, Zap, Tag, X, Edit2, Wand2 } from 'lucide-react';
 
 interface AudioItem {
   id: number;
   filename: string;
   display_name: string;
   rel_path: string;
-  pack: string;
-  folder: string;
   category: string;
   sub_category: string;
   duration: number;
@@ -21,8 +19,6 @@ interface AudioItem {
 export default function App() {
   const [query, setQuery] = useState('');
   const [category, setCategory] = useState('');
-  const [pack, setPack] = useState('');
-  const [sidebarTab, setSidebarTab] = useState<'categories' | 'packs'>('categories');
   const [results, setResults] = useState<AudioItem[]>([]);
   const [total, setTotal] = useState(0);
   const [selectedId, setSelectedId] = useState<number | null>(null);
@@ -30,9 +26,9 @@ export default function App() {
   const [copiedId, setCopiedId] = useState<number | null>(null);
   const [scanning, setScanning] = useState(false);
   const [categories, setCategories] = useState<{ category: string; sub_category: string; count: number }[]>([]);
-  const [packs, setPacks] = useState<{ pack: string; count: number }[]>([]);
   const [editingId, setEditingId] = useState<number | null>(null);
   const [editValue, setEditValue] = useState('');
+  const [listeningId, setListeningId] = useState<number | null>(null);
 
   const waveformRef = useRef<HTMLDivElement>(null);
   const wavesurfer = useRef<WaveSurfer | null>(null);
@@ -64,9 +60,9 @@ export default function App() {
   }, []);
 
   // Fetch search results
-  const fetchResults = async (q: string, cat: string, p: string) => {
+  const fetchResults = async (q: string, cat: string) => {
     try {
-      const res = await fetch(`/api/search?q=${encodeURIComponent(q)}&category=${encodeURIComponent(cat)}&pack=${encodeURIComponent(p)}&limit=100`);
+      const res = await fetch(`/api/search?q=${encodeURIComponent(q)}&category=${encodeURIComponent(cat)}&limit=100`);
       const data = await res.json();
       setResults(data.results || []);
       setTotal(data.total || 0);
@@ -75,28 +71,22 @@ export default function App() {
     }
   };
 
-  // Fetch metadata lists
-  const fetchSidebarData = async () => {
+  // Fetch categories
+  const fetchCategories = async () => {
     try {
-      const [catRes, packRes] = await Promise.all([
-        fetch('/api/categories'),
-        fetch('/api/packs')
-      ]);
+      const catRes = await fetch('/api/categories');
       setCategories(await catRes.json());
-      setPacks(await packRes.json());
     } catch (e) {
       console.error(e);
     }
   };
 
   useEffect(() => {
-    fetchResults(query, category, pack);
-  }, [query, category, pack]);
+    fetchResults(query, category);
+  }, [query, category]);
 
   useEffect(() => {
-    fetchSidebarData();
-    const interval = setInterval(fetchSidebarData, 10000);
-    return () => clearInterval(interval);
+    fetchCategories();
   }, []);
 
   // Load and play selected track
@@ -199,12 +189,29 @@ export default function App() {
     }
   };
 
+  const aiListen = async (id: number) => {
+    setListeningId(id);
+    try {
+      const res = await fetch(`/api/audio/${id}/ai-listen`, { method: 'POST' });
+      const data = await res.json();
+      if (data.display_name) {
+        setResults((prev) =>
+          prev.map((item) => (item.id === id ? { ...item, display_name: data.display_name } : item))
+        );
+      }
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setListeningId(null);
+    }
+  };
+
   const triggerScan = async () => {
     setScanning(true);
     await fetch('/api/scan', { method: 'POST' });
     setTimeout(() => {
-      fetchResults(query, category, pack);
-      fetchSidebarData();
+      fetchResults(query, category);
+      fetchCategories();
       setScanning(false);
     }, 2000);
   };
@@ -213,8 +220,8 @@ export default function App() {
 
   return (
     <div className="flex h-screen bg-slate-950 text-slate-100 font-sans overflow-hidden">
-      {/* Sidebar: Categories & Packs */}
-      <div className="w-72 bg-slate-900 border-r border-slate-800 flex flex-col p-4">
+      {/* Sidebar: Categories */}
+      <div className="w-64 bg-slate-900 border-r border-slate-800 flex flex-col p-4">
         <div className="flex items-center gap-2 mb-4 px-2">
           <Zap className="w-6 h-6 text-indigo-400" />
           <h1 className="text-xl font-bold tracking-tight text-white">MattLab SFX</h1>
@@ -223,83 +230,39 @@ export default function App() {
         <button
           onClick={triggerScan}
           disabled={scanning}
-          className="flex items-center justify-center gap-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg py-2 px-3 text-sm font-medium transition mb-4 shadow-sm"
+          className="flex items-center justify-center gap-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg py-2 px-3 text-sm font-medium transition mb-5 shadow-sm"
         >
           <RefreshCw className={`w-4 h-4 ${scanning ? 'animate-spin' : ''}`} />
           {scanning ? 'Scanning...' : 'Rescan Library'}
         </button>
 
-        {/* Tab Buttons: Categories vs Packs */}
-        <div className="flex p-1 bg-slate-800/80 rounded-lg mb-3">
-          <button
-            onClick={() => setSidebarTab('categories')}
-            className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 text-xs font-semibold rounded-md transition ${
-              sidebarTab === 'categories' ? 'bg-indigo-600 text-white shadow' : 'text-slate-400 hover:text-white'
-            }`}
-          >
-            <Tag className="w-3.5 h-3.5" />
-            UCS Types
-          </button>
-          <button
-            onClick={() => setSidebarTab('packs')}
-            className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 text-xs font-semibold rounded-md transition ${
-              sidebarTab === 'packs' ? 'bg-indigo-600 text-white shadow' : 'text-slate-400 hover:text-white'
-            }`}
-          >
-            <Layers className="w-3.5 h-3.5" />
-            Packs ({packs.length})
-          </button>
-        </div>
+        <h2 className="text-xs font-semibold uppercase tracking-wider text-slate-400 mb-2 px-2 flex items-center gap-1.5">
+          <Tag className="w-3.5 h-3.5" />
+          Categories
+        </h2>
 
-        {/* Sidebar Lists */}
+        {/* Categories List */}
         <div className="flex-1 overflow-y-auto space-y-1 pr-1">
-          {sidebarTab === 'categories' ? (
-            <>
-              <button
-                onClick={() => setCategory('')}
-                className={`w-full text-left px-3 py-1.5 rounded-md text-sm transition ${
-                  category === '' ? 'bg-indigo-600/20 text-indigo-300 font-medium' : 'text-slate-400 hover:bg-slate-800'
-                }`}
-              >
-                All Categories ({total})
-              </button>
-              {categories.map((c) => (
-                <button
-                  key={c.category}
-                  onClick={() => setCategory(category === c.category ? '' : c.category)}
-                  className={`w-full flex items-center justify-between px-3 py-1.5 rounded-md text-sm transition ${
-                    category === c.category ? 'bg-indigo-600/20 text-indigo-300 font-medium' : 'text-slate-400 hover:bg-slate-800'
-                  }`}
-                >
-                  <span>{c.sub_category || c.category}</span>
-                  <span className="text-xs text-slate-500">{c.count}</span>
-                </button>
-              ))}
-            </>
-          ) : (
-            <>
-              <button
-                onClick={() => setPack('')}
-                className={`w-full text-left px-3 py-1.5 rounded-md text-sm transition ${
-                  pack === '' ? 'bg-indigo-600/20 text-indigo-300 font-medium' : 'text-slate-400 hover:bg-slate-800'
-                }`}
-              >
-                All Sound Packs
-              </button>
-              {packs.map((p) => (
-                <button
-                  key={p.pack}
-                  onClick={() => setPack(pack === p.pack ? '' : p.pack)}
-                  className={`w-full flex items-center justify-between px-3 py-1.5 rounded-md text-sm transition ${
-                    pack === p.pack ? 'bg-indigo-600/20 text-indigo-300 font-medium' : 'text-slate-400 hover:bg-slate-800'
-                  }`}
-                >
-                  <span className="truncate pr-2 text-left" title={p.pack}>{p.pack}</span>
-                  <span className="text-xs text-slate-500 shrink-0">{p.count}</span>
-                </button>
-              ))}
-            </>
-          )}
+          <button
+            onClick={() => setCategory('')}
+            className={`w-full text-left px-3 py-1.5 rounded-md text-sm transition ${
+              category === '' ? 'bg-indigo-600/20 text-indigo-300 font-medium' : 'text-slate-400 hover:bg-slate-800'
+            }`}
+          >
+            All Sounds ({total})
+          </button>
+          {categories.map((c) => (
+            <button
+              key={c.category}
+              onClick={() => setCategory(category === c.category ? '' : c.category)}
+              className={`w-full flex items-center justify-between px-3 py-1.5 rounded-md text-sm transition ${
+                category === c.category ? 'bg-indigo-600/20 text-indigo-300 font-medium' : 'text-slate-400 hover:bg-slate-800'
+              }`}
+            >
+              <span>{c.sub_category || c.category}</span>
+              <span className="text-xs text-slate-500">{c.count}</span>
+            </button>
+          ))}
         </div>
       </div>
 
@@ -313,7 +276,7 @@ export default function App() {
               <input
                 ref={searchInputRef}
                 type="text"
-                placeholder={pack ? `Search inside "${pack}"...` : "Search 33,000+ sound effects (e.g. explosion, whoosh)..."}
+                placeholder="Search 33,000+ sound effects (e.g. explosion, whoosh, zipper, electric)..."
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
                 className="w-full bg-slate-800/80 border border-slate-700 rounded-lg pl-11 pr-24 py-2 text-sm text-white placeholder-slate-400 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
@@ -324,32 +287,21 @@ export default function App() {
               </div>
             </div>
             <div className="text-xs text-slate-400 whitespace-nowrap">
-              <span className="font-semibold text-slate-200">{total}</span> total
+              <span className="font-semibold text-slate-200">{total}</span> sounds
             </div>
           </div>
 
-          {/* Active Filter Pills */}
-          {(pack || category) && (
+          {/* Active Category Pill */}
+          {category && (
             <div className="flex items-center gap-2 pt-1">
               <span className="text-xs text-slate-500">Filtered by:</span>
-              {pack && (
-                <span className="inline-flex items-center gap-1.5 bg-indigo-900/60 text-indigo-300 border border-indigo-700/50 text-xs px-2.5 py-1 rounded-full">
-                  <Layers className="w-3 h-3" />
-                  Pack: <strong className="font-semibold">{pack}</strong>
-                  <button onClick={() => setPack('')} className="hover:text-white ml-0.5">
-                    <X className="w-3.5 h-3.5" />
-                  </button>
-                </span>
-              )}
-              {category && (
-                <span className="inline-flex items-center gap-1.5 bg-slate-800 text-slate-300 border border-slate-700 text-xs px-2.5 py-1 rounded-full">
-                  <Tag className="w-3 h-3" />
-                  Category: <strong className="font-semibold">{category}</strong>
-                  <button onClick={() => setCategory('')} className="hover:text-white ml-0.5">
-                    <X className="w-3.5 h-3.5" />
-                  </button>
-                </span>
-              )}
+              <span className="inline-flex items-center gap-1.5 bg-slate-800 text-slate-300 border border-slate-700 text-xs px-2.5 py-1 rounded-full">
+                <Tag className="w-3 h-3" />
+                Category: <strong className="font-semibold">{category}</strong>
+                <button onClick={() => setCategory('')} className="hover:text-white ml-0.5">
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              </span>
             </div>
           )}
         </div>
@@ -360,7 +312,7 @@ export default function App() {
             <thead className="bg-slate-900/60 text-slate-400 text-xs uppercase sticky top-0 backdrop-blur z-10 border-b border-slate-800">
               <tr>
                 <th className="py-2.5 px-4 w-12">Play</th>
-                <th className="py-2.5 px-4">Sound Effect & Details</th>
+                <th className="py-2.5 px-4">Sound Effect Name</th>
                 <th className="py-2.5 px-4">Category</th>
                 <th className="py-2.5 px-4">Duration</th>
                 <th className="py-2.5 px-4">Sample Rate</th>
@@ -371,6 +323,7 @@ export default function App() {
               {results.map((item) => {
                 const isSelected = item.id === selectedId;
                 const isEditing = editingId === item.id;
+                const isListening = listeningId === item.id;
 
                 return (
                   <tr
@@ -425,6 +378,7 @@ export default function App() {
                           </span>
                         )}
 
+                        {/* Inline Edit Button */}
                         <button
                           onClick={(e) => {
                             e.stopPropagation();
@@ -432,30 +386,28 @@ export default function App() {
                             setEditValue(item.display_name || item.filename);
                           }}
                           className="opacity-40 group-hover:opacity-100 hover:text-indigo-400 text-slate-400 p-1 rounded hover:bg-slate-800 transition"
-                          title="Rename sound in app (or double-click text)"
+                          title="Rename sound in app"
                         >
                           <Edit2 className="w-3.5 h-3.5" />
                         </button>
 
-                        {item.pack && (
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setPack(item.pack);
-                              setSidebarTab('packs');
-                            }}
-                            className="text-[11px] font-normal text-indigo-400 hover:text-indigo-300 bg-indigo-950/70 border border-indigo-800/50 px-2 py-0.5 rounded transition ml-1"
-                            title={`Filter library to ${item.pack}`}
-                          >
-                            {item.pack}
-                          </button>
-                        )}
+                        {/* AI Listen Button */}
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            aiListen(item.id);
+                          }}
+                          disabled={isListening}
+                          className="opacity-40 group-hover:opacity-100 hover:text-amber-400 text-slate-400 p-1 rounded hover:bg-slate-800 transition"
+                          title="AI Listen: Detect sound type from audio waveform"
+                        >
+                          <Wand2 className={`w-3.5 h-3.5 ${isListening ? 'animate-spin text-amber-400' : ''}`} />
+                        </button>
                       </div>
 
-                      {/* Subtitle: Original filename & folder */}
+                      {/* Subtitle: Original filename */}
                       <div className="text-xs text-slate-400 flex items-center gap-2 mt-0.5">
                         <span className="font-mono text-slate-500">{item.filename}</span>
-                        {item.folder && <span>• {item.folder}</span>}
                       </div>
                     </td>
                     <td className="py-2.5 px-4">
@@ -506,13 +458,24 @@ export default function App() {
             </div>
 
             {currentItem && (
-              <button
-                onClick={() => copySMB(currentItem)}
-                className="flex items-center gap-1.5 text-xs bg-slate-800 hover:bg-slate-700 text-indigo-300 px-3 py-1.5 rounded-lg border border-slate-700 transition"
-              >
-                {copiedId === currentItem.id ? <Check className="w-3.5 h-3.5 text-green-400" /> : <Copy className="w-3.5 h-3.5" />}
-                Copy SMB Path
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => aiListen(currentItem.id)}
+                  disabled={listeningId === currentItem.id}
+                  className="flex items-center gap-1.5 text-xs bg-slate-800 hover:bg-slate-700 text-amber-300 px-3 py-1.5 rounded-lg border border-slate-700 transition"
+                  title="Detect sound type with AI"
+                >
+                  <Wand2 className={`w-3.5 h-3.5 ${listeningId === currentItem.id ? 'animate-spin' : ''}`} />
+                  AI Listen
+                </button>
+                <button
+                  onClick={() => copySMB(currentItem)}
+                  className="flex items-center gap-1.5 text-xs bg-slate-800 hover:bg-slate-700 text-indigo-300 px-3 py-1.5 rounded-lg border border-slate-700 transition"
+                >
+                  {copiedId === currentItem.id ? <Check className="w-3.5 h-3.5 text-green-400" /> : <Copy className="w-3.5 h-3.5" />}
+                  Copy SMB Path
+                </button>
+              </div>
             )}
           </div>
 

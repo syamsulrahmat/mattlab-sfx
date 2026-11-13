@@ -1,15 +1,16 @@
 import os
 from fastapi import APIRouter, Query, HTTPException, Body
 from app.db.database import get_db
+from app.ai.audio_listener import predict_smart_name, classify_audio_sound
 
 router = APIRouter()
+SFX_DIR = os.environ.get("SFX_DIR", "/sfx")
 SMB_BASE_PATH = os.environ.get("SMB_BASE_PATH", r"\\MATTLAB\Assets\Sound effects")
 
 @router.get("/search")
 def search_sfx(
     q: str = Query("", description="Search query terms"),
     category: str = Query("", description="UCS Category Filter"),
-    pack: str = Query("", description="Sound Pack Filter"),
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0)
 ):
@@ -31,10 +32,6 @@ def search_sfx(
             if category:
                 base_sql += " AND a.category = ?"
                 params.append(category)
-
-            if pack:
-                base_sql += " AND a.pack = ?"
-                params.append(pack)
                 
             base_sql += " ORDER BY rank LIMIT ? OFFSET ?"
             params.extend([limit, offset])
@@ -44,9 +41,6 @@ def search_sfx(
             if category:
                 conditions.append("category = ?")
                 params.append(category)
-            if pack:
-                conditions.append("pack = ?")
-                params.append(pack)
 
             if conditions:
                 base_sql += " WHERE " + " AND ".join(conditions)
@@ -72,9 +66,6 @@ def search_sfx(
             if category:
                 count_sql += " AND a.category = ?"
                 count_params.append(category)
-            if pack:
-                count_sql += " AND a.pack = ?"
-                count_params.append(pack)
             total = conn.execute(count_sql, count_params).fetchone()[0]
         else:
             count_sql = "SELECT COUNT(*) FROM audio_files"
@@ -107,21 +98,6 @@ def get_categories():
     finally:
         conn.close()
 
-@router.get("/packs")
-def get_packs():
-    conn = get_db()
-    try:
-        rows = conn.execute("""
-            SELECT pack, COUNT(*) as count 
-            FROM audio_files 
-            WHERE pack != ''
-            GROUP BY pack 
-            ORDER BY count DESC
-        """).fetchall()
-        return [dict(r) for r in rows]
-    finally:
-        conn.close()
-
 @router.patch("/audio/{file_id}/name")
 def update_display_name(file_id: int, payload: dict = Body(...)):
     new_name = payload.get("display_name", "").strip()
@@ -137,3 +113,26 @@ def update_display_name(file_id: int, payload: dict = Body(...)):
         return {"status": "success", "id": file_id, "display_name": new_name}
     finally:
         conn.close()
+
+@router.post("/audio/{file_id}/ai-listen")
+def ai_listen_audio(file_id: int):
+    conn = get_db()
+    row = conn.execute("SELECT rel_path FROM audio_files WHERE id = ?", [file_id]).fetchone()
+    if not row:
+        conn.close()
+        raise HTTPException(status_code=404, detail="Audio file not found")
+
+    file_path = os.path.join(SFX_DIR, row["rel_path"])
+    predicted_name = predict_smart_name(file_path)
+    predictions = classify_audio_sound(file_path, top_k=3)
+
+    with conn:
+        conn.execute("UPDATE audio_files SET display_name = ? WHERE id = ?", (predicted_name, file_id))
+    conn.close()
+
+    return {
+        "status": "success",
+        "id": file_id,
+        "display_name": predicted_name,
+        "predictions": predictions
+    }
