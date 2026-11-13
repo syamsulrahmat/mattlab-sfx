@@ -1,0 +1,12 @@
+Windows Registry Editor Version 5.00
+
+[HKEY_CLASSES_ROOT\mattlab-reveal]
+@="URL:MattLab SFX Reveal in Explorer"
+"URL Protocol"=""
+
+[HKEY_CLASSES_ROOT\mattlab-reveal\shell]
+
+[HKEY_CLASSES_ROOT\mattlab-reveal\shell\open]
+
+[HKEY_CLASSES_ROOT\mattlab-reveal\shell\open\command]
+@="powershell.exe -NoProfile -WindowStyle Hidden -Command \"$raw = [System.Uri]::UnescapeDataString('%1'); $p = $raw -replace '^mattlab-reveal:/{0,2}', ''; Start-Process explorer.exe -ArgumentList @('/select,', $p)\""

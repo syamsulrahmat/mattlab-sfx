@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import WaveSurfer from 'wavesurfer.js';
-import { Play, Pause, Search, Volume2, Copy, Check, RefreshCw, Zap, Tag, X, Edit2, Wand2, Brain, Square, FolderOpen, GripVertical } from 'lucide-react';
+import { Play, Pause, Search, Volume2, Copy, Check, RefreshCw, Zap, Tag, X, Edit2, Wand2, Brain, Square, FolderOpen } from 'lucide-react';
 
 interface AudioItem {
   id: number;
@@ -174,6 +174,18 @@ export default function App() {
         if (currentIndex > 0) {
           selectTrack(results[currentIndex - 1]);
         }
+      } else if (e.key.toLowerCase() === 'e') {
+        const item = results.find((r) => r.id === selectedId);
+        if (item) {
+          e.preventDefault();
+          copyExplorer(item);
+        }
+      } else if (e.key.toLowerCase() === 'c' && !e.ctrlKey && !e.metaKey) {
+        const item = results.find((r) => r.id === selectedId);
+        if (item) {
+          e.preventDefault();
+          copySMB(item);
+        }
       }
     };
 
@@ -218,10 +230,22 @@ export default function App() {
     if (success) {
       setRevealedId(item.id);
       setToastMessage({
-        title: "Copied Explorer Command!",
-        body: "Press Win + R and paste (Ctrl+V) to open File Explorer with this file automatically selected.",
+        title: "Copied Explorer Command! [Hotkeys: E]",
+        body: "Press Win + R and paste (Ctrl+V) to reveal & select file in Explorer.",
         code: cmd
       });
+
+      // Optional 1-click trigger if user installed the mattlab-reveal protocol
+      try {
+        const iframe = document.createElement('iframe');
+        iframe.style.display = 'none';
+        iframe.src = `mattlab-reveal://${encodeURIComponent(item.smb_path)}`;
+        document.body.appendChild(iframe);
+        setTimeout(() => document.body.removeChild(iframe), 2000);
+      } catch {
+        // Silently ignore if protocol is unhandled
+      }
+
       setTimeout(() => setRevealedId(null), 2000);
       setTimeout(() => setToastMessage(null), 6000);
     }
@@ -239,15 +263,6 @@ export default function App() {
       setTimeout(() => setCopiedId(null), 2000);
       setTimeout(() => setToastMessage(null), 4500);
     }
-  };
-
-  const handleDragStart = (e: React.DragEvent, item: AudioItem) => {
-    const streamUrl = `${window.location.origin}/api/audio/stream/${item.id}`;
-    // Chromium DownloadURL extension allows dropping into Windows Explorer / Desktop / Premiere
-    e.dataTransfer.setData("DownloadURL", `audio/wav:${item.filename}:${streamUrl}`);
-    e.dataTransfer.setData("text/plain", item.smb_path);
-    e.dataTransfer.setData("text/uri-list", streamUrl);
-    e.dataTransfer.effectAllowed = "copy";
   };
 
   const saveCustomName = async (id: number) => {
@@ -551,23 +566,13 @@ export default function App() {
                     <td className="py-2.5 px-4 text-slate-400">{item.sample_rate ? `${item.sample_rate} Hz` : '-'}</td>
                     <td className="py-2.5 px-4 text-right">
                       <div className="flex items-center justify-end gap-1.5">
-                        {/* Drag Handle for Premiere / Explorer */}
-                        <div
-                          draggable
-                          onDragStart={(e) => handleDragStart(e, item)}
-                          title="Drag directly into Premiere Pro or Windows Explorer"
-                          className="cursor-grab active:cursor-grabbing p-1.5 rounded hover:bg-slate-800 text-slate-500 hover:text-indigo-300 transition"
-                        >
-                          <GripVertical className="w-4 h-4" />
-                        </div>
-
-                        {/* Reveal & Select in Explorer (Win+R command) */}
+                        {/* Reveal & Select in Explorer (Win+R command / E hotkey) */}
                         <button
                           onClick={(e) => {
                             e.stopPropagation();
                             copyExplorer(item);
                           }}
-                          title={`Reveal & Select in Windows Explorer:\nexplorer.exe /select,"${item.smb_path}"\n(Press Win+R -> Ctrl+V -> Enter)`}
+                          title={`Reveal & Select in Windows Explorer [E]:\nexplorer.exe /select,"${item.smb_path}"\n(Press Win+R -> Ctrl+V -> Enter)`}
                           className="p-1.5 rounded bg-indigo-900/30 hover:bg-indigo-600/50 text-indigo-300 hover:text-white transition"
                         >
                           {revealedId === item.id ? <Check className="w-4 h-4 text-emerald-400" /> : <FolderOpen className="w-4 h-4" />}
@@ -579,7 +584,7 @@ export default function App() {
                             e.stopPropagation();
                             copySMB(item);
                           }}
-                          title={`Copy Raw SMB Path:\n${item.smb_path}`}
+                          title={`Copy Raw SMB Path [C]:\n${item.smb_path}`}
                           className="p-1.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white transition"
                         >
                           {copiedId === item.id ? <Check className="w-4 h-4 text-emerald-400" /> : <Copy className="w-4 h-4" />}
@@ -609,7 +614,7 @@ export default function App() {
                   {currentItem ? (currentItem.display_name || currentItem.filename) : 'Select a sound effect to preview'}
                 </div>
                 <div className="text-xs text-slate-400">
-                  {currentItem ? `${currentItem.filename} • [Space] to Play/Pause, [Arrows] to Navigate` : 'Shortcut keys enabled'}
+                  {currentItem ? `${currentItem.filename} • [Space] Play • [↑/↓] Navigate • [E] Reveal in Explorer • [C] Copy Path` : 'Shortcut keys: [Space] Play, [↑/↓] Navigate, [E] Reveal in Explorer, [/] Search'}
                 </div>
               </div>
             </div>
@@ -630,32 +635,21 @@ export default function App() {
                 <button
                   onClick={() => copyExplorer(currentItem)}
                   className="flex items-center gap-1.5 text-xs bg-indigo-900/50 hover:bg-indigo-600/70 text-indigo-200 px-3 py-1.5 rounded-lg border border-indigo-700/50 transition"
-                  title="Copy command to open Windows Explorer with this file selected"
+                  title="Copy command to open Windows Explorer with this file selected [Hotkey: E]"
                 >
                   {revealedId === currentItem.id ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <FolderOpen className="w-3.5 h-3.5" />}
-                  Reveal in Explorer
+                  Reveal in Explorer [E]
                 </button>
 
                 {/* Copy Raw SMB Path Button */}
                 <button
                   onClick={() => copySMB(currentItem)}
                   className="flex items-center gap-1.5 text-xs bg-slate-800 hover:bg-slate-700 text-slate-300 px-3 py-1.5 rounded-lg border border-slate-700 transition"
-                  title="Copy Windows SMB network path"
+                  title="Copy Windows SMB network path [Hotkey: C]"
                 >
                   {copiedId === currentItem.id ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
-                  Copy SMB Path
+                  Copy SMB Path [C]
                 </button>
-
-                {/* Draggable Badge for Premiere */}
-                <div
-                  draggable
-                  onDragStart={(e) => handleDragStart(e, currentItem)}
-                  className="cursor-grab active:cursor-grabbing flex items-center gap-1.5 text-xs bg-slate-800/80 hover:bg-slate-700 text-slate-300 px-3 py-1.5 rounded-lg border border-slate-700 select-none transition"
-                  title="Click and drag onto Desktop or Premiere Pro"
-                >
-                  <GripVertical className="w-3.5 h-3.5 text-slate-400" />
-                  Drag to Premiere
-                </div>
               </div>
             )}
           </div>
@@ -669,9 +663,19 @@ export default function App() {
             <Check className="w-5 h-5 text-emerald-400 shrink-0 mt-0.5" />
             <div className="flex-1 min-w-0">
               <div className="font-semibold text-white mb-0.5">{toastMessage.title}</div>
-              <div className="text-slate-300 text-[11px] mb-2">{toastMessage.body}</div>
-              <div className="bg-slate-950 px-2.5 py-1.5 rounded border border-slate-800 font-mono text-[11px] text-indigo-300 truncate select-all">
+              <div className="text-slate-300 text-[11px] mb-1.5">{toastMessage.body}</div>
+              <div className="bg-slate-950 px-2.5 py-1.5 rounded border border-slate-800 font-mono text-[11px] text-indigo-300 truncate select-all mb-1.5">
                 {toastMessage.code}
+              </div>
+              <div className="text-[10px] text-slate-400 flex items-center gap-1.5">
+                <span>Want 1-click reveal without Win+R?</span>
+                <a
+                  href="/mattlab-reveal-setup.reg"
+                  download
+                  className="text-indigo-400 hover:text-indigo-300 underline font-medium"
+                >
+                  Download Windows 1-Click .reg setup
+                </a>
               </div>
             </div>
             <button
