@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import WaveSurfer from 'wavesurfer.js';
-import { Play, Pause, Search, Volume2, Copy, Check, RefreshCw, Tag, X, Edit2, Wand2, Brain, Square, FolderOpen, Menu } from 'lucide-react';
+import { Play, Pause, Search, Volume2, Copy, Check, RefreshCw, Tag, X, Edit2, Wand2, Brain, Square, FolderOpen, Menu, ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react';
 import { Logo } from './components/Logo';
 import { AudioPlayer } from './components/AudioPlayer';
 
@@ -39,6 +39,8 @@ export default function App() {
   const [duration, setDuration] = useState(0);
   const [isLooping, setIsLooping] = useState(false);
   const [volume, setVolume] = useState(1.0);
+  const [sortBy, setSortBy] = useState<string>('name');
+  const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
   const isLoopingRef = useRef(false);
   isLoopingRef.current = isLooping;
 
@@ -89,14 +91,25 @@ export default function App() {
   }, []);
 
   // Fetch search results
-  const fetchResults = async (q: string, cat: string) => {
+  const fetchResults = async (q: string, cat: string, sBy: string = sortBy, sOrder: string = sortOrder) => {
     try {
-      const res = await fetch(`/api/search?q=${encodeURIComponent(q)}&category=${encodeURIComponent(cat)}&limit=100`);
+      const res = await fetch(
+        `/api/search?q=${encodeURIComponent(q)}&category=${encodeURIComponent(cat)}&sort_by=${encodeURIComponent(sBy)}&sort_order=${encodeURIComponent(sOrder)}&limit=100`
+      );
       const data = await res.json();
       setResults(data.results || []);
       setTotal(data.total || 0);
     } catch (e) {
       console.error(e);
+    }
+  };
+
+  const handleSort = (field: string) => {
+    if (sortBy === field) {
+      setSortOrder((prev) => (prev === 'asc' ? 'desc' : 'asc'));
+    } else {
+      setSortBy(field);
+      setSortOrder(field === 'duration' || field === 'sample_rate' ? 'desc' : 'asc');
     }
   };
 
@@ -111,7 +124,7 @@ export default function App() {
       const aiData = await aiRes.json();
       setAiStatus(aiData);
       if (aiData.is_running) {
-        fetchResults(query, category);
+        fetchResults(query, category, sortBy, sortOrder);
       }
     } catch (e) {
       console.error(e);
@@ -119,8 +132,8 @@ export default function App() {
   };
 
   useEffect(() => {
-    fetchResults(query, category);
-  }, [query, category]);
+    fetchResults(query, category, sortBy, sortOrder);
+  }, [query, category, sortBy, sortOrder]);
 
   useEffect(() => {
     fetchAuxData();
@@ -519,6 +532,29 @@ export default function App() {
               </span>
               <span className="hidden sm:inline"> sounds</span>
             </div>
+
+            {/* Quick Sort Dropdown */}
+            <div className="flex items-center shrink-0">
+              <select
+                value={`${sortBy}:${sortOrder}`}
+                onChange={(e) => {
+                  const [f, o] = e.target.value.split(':');
+                  setSortBy(f);
+                  setSortOrder(o as 'asc' | 'desc');
+                }}
+                className="bg-slate-800 border border-slate-700 hover:border-slate-600 text-slate-300 text-[11px] sm:text-xs rounded-lg px-2 py-1.5 focus:outline-none focus:border-indigo-500 cursor-pointer"
+                title="Sort Sound Effects"
+              >
+                <option value="name:asc">Sort: Name (A-Z)</option>
+                <option value="name:desc">Sort: Name (Z-A)</option>
+                <option value="duration:asc">Sort: Duration (Shortest)</option>
+                <option value="duration:desc">Sort: Duration (Longest)</option>
+                <option value="category:asc">Sort: Category (A-Z)</option>
+                <option value="sample_rate:desc">Sort: Highest Quality</option>
+                {query && <option value="rank:asc">Sort: Relevance</option>}
+                <option value="id:desc">Sort: Newest Added</option>
+              </select>
+            </div>
           </div>
 
           {/* Active Category Pill */}
@@ -539,13 +575,65 @@ export default function App() {
         {/* SFX Table List */}
         <div className="flex-1 overflow-y-auto overflow-x-hidden min-w-0 w-full">
           <table className="w-full table-fixed text-left text-sm">
-            <thead className="bg-slate-900/60 text-slate-400 text-xs uppercase sticky top-0 backdrop-blur z-10 border-b border-slate-800">
+            <thead className="bg-slate-900/80 text-slate-400 text-xs uppercase sticky top-0 backdrop-blur z-10 border-b border-slate-800 select-none">
               <tr>
                 <th className="py-2.5 px-2 sm:px-4 w-12 sm:w-14 shrink-0">Play</th>
-                <th className="py-2.5 px-2 sm:px-4 w-auto min-w-0">Sound Effect Name</th>
-                <th className="py-2.5 px-3 w-28 hidden sm:table-cell shrink-0">Category</th>
-                <th className="py-2.5 px-3 w-20 hidden md:table-cell shrink-0">Duration</th>
-                <th className="py-2.5 px-3 w-24 hidden lg:table-cell shrink-0">Sample Rate</th>
+                <th className="py-2.5 px-2 sm:px-4 w-auto min-w-0">
+                  <button
+                    onClick={() => handleSort('name')}
+                    className="flex items-center gap-1.5 hover:text-white transition font-semibold group text-left cursor-pointer"
+                    title="Click to sort by Name (A-Z / Z-A)"
+                  >
+                    <span>Sound Effect Name</span>
+                    {sortBy === 'name' ? (
+                      sortOrder === 'asc' ? <ArrowUp className="w-3.5 h-3.5 text-indigo-400 shrink-0" /> : <ArrowDown className="w-3.5 h-3.5 text-indigo-400 shrink-0" />
+                    ) : (
+                      <ArrowUpDown className="w-3.5 h-3.5 opacity-0 group-hover:opacity-60 transition shrink-0" />
+                    )}
+                  </button>
+                </th>
+                <th className="py-2.5 px-3 w-28 hidden sm:table-cell shrink-0">
+                  <button
+                    onClick={() => handleSort('category')}
+                    className="flex items-center gap-1.5 hover:text-white transition font-semibold group text-left cursor-pointer"
+                    title="Click to sort by Category"
+                  >
+                    <span>Category</span>
+                    {sortBy === 'category' ? (
+                      sortOrder === 'asc' ? <ArrowUp className="w-3.5 h-3.5 text-indigo-400 shrink-0" /> : <ArrowDown className="w-3.5 h-3.5 text-indigo-400 shrink-0" />
+                    ) : (
+                      <ArrowUpDown className="w-3.5 h-3.5 opacity-0 group-hover:opacity-60 transition shrink-0" />
+                    )}
+                  </button>
+                </th>
+                <th className="py-2.5 px-3 w-24 hidden md:table-cell shrink-0">
+                  <button
+                    onClick={() => handleSort('duration')}
+                    className="flex items-center gap-1.5 hover:text-white transition font-semibold group text-left cursor-pointer"
+                    title="Click to sort by Duration (Shortest / Longest)"
+                  >
+                    <span>Duration</span>
+                    {sortBy === 'duration' ? (
+                      sortOrder === 'asc' ? <ArrowUp className="w-3.5 h-3.5 text-indigo-400 shrink-0" /> : <ArrowDown className="w-3.5 h-3.5 text-indigo-400 shrink-0" />
+                    ) : (
+                      <ArrowUpDown className="w-3.5 h-3.5 opacity-0 group-hover:opacity-60 transition shrink-0" />
+                    )}
+                  </button>
+                </th>
+                <th className="py-2.5 px-3 w-24 hidden lg:table-cell shrink-0">
+                  <button
+                    onClick={() => handleSort('sample_rate')}
+                    className="flex items-center gap-1.5 hover:text-white transition font-semibold group text-left cursor-pointer"
+                    title="Click to sort by Quality / Sample Rate"
+                  >
+                    <span>Quality</span>
+                    {sortBy === 'sample_rate' ? (
+                      sortOrder === 'asc' ? <ArrowUp className="w-3.5 h-3.5 text-indigo-400 shrink-0" /> : <ArrowDown className="w-3.5 h-3.5 text-indigo-400 shrink-0" />
+                    ) : (
+                      <ArrowUpDown className="w-3.5 h-3.5 opacity-0 group-hover:opacity-60 transition shrink-0" />
+                    )}
+                  </button>
+                </th>
                 <th className="py-2.5 px-2 sm:px-4 w-20 sm:w-24 text-right shrink-0">Actions</th>
               </tr>
             </thead>
