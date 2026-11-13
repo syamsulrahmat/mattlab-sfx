@@ -449,10 +449,10 @@ export default function App() {
       </div>
 
       {/* Main Content Area */}
-      <div className="flex-1 flex flex-col min-w-0">
+      <div className="flex-1 flex flex-col min-w-0 w-full max-w-full overflow-hidden">
         {/* Top Search Header */}
-        <div className="p-3 sm:p-4 border-b border-slate-800 bg-slate-900/40 flex flex-col gap-2">
-          <div className="flex items-center gap-2 sm:gap-4">
+        <div className="p-3 sm:p-4 border-b border-slate-800 bg-slate-900/40 flex flex-col gap-2 overflow-hidden w-full max-w-full">
+          <div className="flex items-center gap-2 sm:gap-4 min-w-0 w-full">
             {/* Hamburger Button for Mobile Drawer */}
             <button
               onClick={() => setSidebarOpen(true)}
@@ -477,21 +477,22 @@ export default function App() {
                 <kbd className="px-1.5 py-0.5 text-[10px] font-mono text-slate-400 bg-slate-700/60 rounded border border-slate-600">Ctrl+K</kbd>
               </div>
             </div>
-            <div className="text-xs text-slate-400 whitespace-nowrap shrink-0">
+            <div className="text-[11px] sm:text-xs text-slate-400 whitespace-nowrap shrink-0">
               <span className="font-semibold text-slate-200">
                 {query || category ? `${total.toLocaleString()} of ${totalLibraryCount.toLocaleString()}` : totalLibraryCount.toLocaleString()}
-              </span> sounds
+              </span>
+              <span className="hidden sm:inline"> sounds</span>
             </div>
           </div>
 
           {/* Active Category Pill */}
           {category && (
-            <div className="flex items-center gap-2 pt-1">
-              <span className="text-xs text-slate-500">Filtered by:</span>
-              <span className="inline-flex items-center gap-1.5 bg-slate-800 text-slate-300 border border-slate-700 text-xs px-2.5 py-1 rounded-full">
-                <Tag className="w-3 h-3" />
-                Category: <strong className="font-semibold">{category}</strong>
-                <button onClick={() => setCategory('')} className="hover:text-white ml-0.5">
+            <div className="flex items-center gap-2 pt-1 min-w-0 overflow-hidden">
+              <span className="text-xs text-slate-500 shrink-0">Filtered by:</span>
+              <span className="inline-flex items-center gap-1.5 bg-slate-800 text-slate-300 border border-slate-700 text-xs px-2.5 py-1 rounded-full truncate max-w-full">
+                <Tag className="w-3 h-3 shrink-0" />
+                <span className="truncate">Category: <strong className="font-semibold">{category}</strong></span>
+                <button onClick={() => setCategory('')} className="hover:text-white ml-0.5 shrink-0">
                   <X className="w-3.5 h-3.5" />
                 </button>
               </span>
@@ -500,16 +501,16 @@ export default function App() {
         </div>
 
         {/* SFX Table List */}
-        <div className="flex-1 overflow-y-auto">
-          <table className="w-full text-left text-sm">
+        <div className="flex-1 overflow-y-auto overflow-x-hidden min-w-0 w-full">
+          <table className="w-full table-fixed text-left text-sm">
             <thead className="bg-slate-900/60 text-slate-400 text-xs uppercase sticky top-0 backdrop-blur z-10 border-b border-slate-800">
               <tr>
-                <th className="py-2.5 px-3 sm:px-4 w-10 sm:w-12">Play</th>
-                <th className="py-2.5 px-3 sm:px-4">Sound Effect Name</th>
-                <th className="py-2.5 px-4 hidden sm:table-cell">Category</th>
-                <th className="py-2.5 px-4 hidden md:table-cell">Duration</th>
-                <th className="py-2.5 px-4 hidden lg:table-cell">Sample Rate</th>
-                <th className="py-2.5 px-3 sm:px-4 text-right">Actions</th>
+                <th className="py-2.5 px-2 sm:px-4 w-12 sm:w-14 shrink-0">Play</th>
+                <th className="py-2.5 px-2 sm:px-4 w-auto min-w-0">Sound Effect Name</th>
+                <th className="py-2.5 px-3 w-28 hidden sm:table-cell shrink-0">Category</th>
+                <th className="py-2.5 px-3 w-20 hidden md:table-cell shrink-0">Duration</th>
+                <th className="py-2.5 px-3 w-24 hidden lg:table-cell shrink-0">Sample Rate</th>
+                <th className="py-2.5 px-2 sm:px-4 w-20 sm:w-24 text-right shrink-0">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-800/50">
@@ -526,7 +527,7 @@ export default function App() {
                       isSelected ? 'bg-indigo-950/40 border-l-2 border-indigo-500' : 'hover:bg-slate-900/50'
                     }`}
                   >
-                    <td className="py-2.5 px-3 sm:px-4">
+                    <td className="py-2.5 px-2 sm:px-4">
                       <button
                         onClick={(e) => {
                           e.stopPropagation();
@@ -536,13 +537,13 @@ export default function App() {
                             selectTrack(item);
                           }
                         }}
-                        className="w-8 h-8 rounded-full bg-slate-800 hover:bg-indigo-600 flex items-center justify-center text-slate-300 hover:text-white transition"
+                        className="w-8 h-8 rounded-full bg-slate-800 hover:bg-indigo-600 flex items-center justify-center text-slate-300 hover:text-white transition shrink-0"
                       >
                         {isSelected && isPlaying ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4 ml-0.5" />}
                       </button>
                     </td>
-                    <td className="py-2.5 px-3 sm:px-4 font-medium text-slate-200 min-w-0">
-                      <div className="flex items-center gap-1.5 sm:gap-2">
+                    <td className="py-2.5 px-2 sm:px-4 font-medium text-slate-200 min-w-0 overflow-hidden">
+                      <div className="flex items-center gap-1.5 sm:gap-2 min-w-0">
                         {isEditing ? (
                           <input
                             type="text"
@@ -555,7 +556,7 @@ export default function App() {
                               if (e.key === 'Escape') setEditingId(null);
                             }}
                             onBlur={() => saveCustomName(item.id)}
-                            className="bg-slate-800 border border-indigo-500 rounded px-2 py-0.5 text-xs sm:text-sm text-white focus:outline-none w-full max-w-sm"
+                            className="bg-slate-800 border border-indigo-500 rounded px-2 py-0.5 text-xs sm:text-sm text-white focus:outline-none w-full max-w-sm min-w-0"
                           />
                         ) : (
                           <span
@@ -564,7 +565,7 @@ export default function App() {
                               setEditingId(item.id);
                               setEditValue(item.display_name || item.filename);
                             }}
-                            className="font-semibold text-slate-100 hover:text-indigo-300 transition truncate block text-xs sm:text-sm"
+                            className="font-semibold text-slate-100 hover:text-indigo-300 transition truncate block text-xs sm:text-sm min-w-0 flex-1"
                             title="Double-click to rename"
                           >
                             {item.display_name || item.filename}
@@ -599,22 +600,22 @@ export default function App() {
                       </div>
 
                       {/* Subtitle: Original filename */}
-                      <div className="text-[11px] sm:text-xs text-slate-400 flex items-center gap-2 mt-0.5">
-                        <span className="font-mono text-slate-500 truncate max-w-[200px] sm:max-w-none">{item.filename}</span>
+                      <div className="text-[11px] sm:text-xs text-slate-400 flex items-center gap-1.5 mt-0.5 min-w-0">
+                        <span className="font-mono text-slate-500 truncate min-w-0 flex-1">{item.filename}</span>
                         {/* Mobile category badge */}
-                        <span className="sm:hidden text-[10px] bg-slate-800 text-slate-400 px-1.5 py-0.5 rounded shrink-0">
+                        <span className="sm:hidden text-[10px] bg-slate-800 text-slate-400 px-1 py-0.2 rounded shrink-0">
                           {item.sub_category || item.category}
                         </span>
                       </div>
                     </td>
-                    <td className="py-2.5 px-4 hidden sm:table-cell">
-                      <span className="inline-block bg-slate-800 text-slate-300 text-xs px-2 py-0.5 rounded">
+                    <td className="py-2.5 px-3 hidden sm:table-cell overflow-hidden">
+                      <span className="inline-block bg-slate-800 text-slate-300 text-xs px-2 py-0.5 rounded truncate max-w-full">
                         {item.sub_category || item.category}
                       </span>
                     </td>
-                    <td className="py-2.5 px-4 text-slate-400 hidden md:table-cell">{item.duration ? `${item.duration}s` : '-'}</td>
-                    <td className="py-2.5 px-4 text-slate-400 hidden lg:table-cell">{item.sample_rate ? `${item.sample_rate} Hz` : '-'}</td>
-                    <td className="py-2.5 px-3 sm:px-4 text-right">
+                    <td className="py-2.5 px-3 text-slate-400 hidden md:table-cell truncate">{item.duration ? `${item.duration}s` : '-'}</td>
+                    <td className="py-2.5 px-3 text-slate-400 hidden lg:table-cell truncate">{item.sample_rate ? `${item.sample_rate} Hz` : '-'}</td>
+                    <td className="py-2.5 px-2 sm:px-4 text-right shrink-0">
                       <div className="flex items-center justify-end gap-1 sm:gap-1.5">
                         {/* Reveal & Select in Explorer (Win+R command / E hotkey) */}
                         <button
@@ -649,9 +650,9 @@ export default function App() {
         </div>
 
         {/* Bottom Audio Player Bar */}
-        <div className="min-h-[7rem] md:h-28 border-t border-slate-800 bg-slate-900/95 backdrop-blur p-3 sm:p-4 flex flex-col justify-between">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-2">
-            <div className="flex items-center gap-3 min-w-0">
+        <div className="min-h-[7rem] md:h-28 border-t border-slate-800 bg-slate-900/95 backdrop-blur p-2.5 sm:p-4 flex flex-col justify-between overflow-hidden w-full max-w-full">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1.5 sm:gap-2 mb-1.5 sm:mb-2 min-w-0 w-full overflow-hidden">
+            <div className="flex items-center gap-2 sm:gap-3 min-w-0 flex-1 overflow-hidden">
               <button
                 onClick={() => wavesurfer.current?.playPause()}
                 disabled={!selectedId}
@@ -659,11 +660,11 @@ export default function App() {
               >
                 {isPlaying ? <Pause className="w-4 h-4 sm:w-5 sm:h-5" /> : <Play className="w-4 h-4 sm:w-5 sm:h-5 ml-0.5" />}
               </button>
-              <div className="min-w-0 flex-1">
+              <div className="min-w-0 flex-1 overflow-hidden">
                 <div className="text-xs sm:text-sm font-semibold text-white truncate">
                   {currentItem ? (currentItem.display_name || currentItem.filename) : 'Select a sound effect to preview'}
                 </div>
-                <div className="text-[11px] sm:text-xs text-slate-400 truncate">
+                <div className="text-[10px] sm:text-xs text-slate-400 truncate">
                   {currentItem ? `${currentItem.filename} • [Space] Play • [E] Reveal • [C] Copy` : 'Shortcuts: [Space] Play, [↑/↓] Navigate, [E] Reveal'}
                 </div>
               </div>
@@ -704,25 +705,25 @@ export default function App() {
             )}
           </div>
 
-          <div ref={waveformRef} className="w-full" />
+          <div ref={waveformRef} className="w-full overflow-hidden" />
         </div>
 
         {/* Toast Notification for Clipboard */}
         {toastMessage && (
-          <div className="fixed bottom-28 inset-x-4 sm:inset-x-auto sm:right-6 z-50 bg-slate-900/95 border border-indigo-500/60 shadow-2xl rounded-xl p-3 sm:p-4 flex items-start gap-3 text-slate-100 text-xs sm:max-w-lg backdrop-blur animate-in fade-in slide-in-from-bottom-2 duration-200">
+          <div className="fixed bottom-28 inset-x-3 sm:inset-x-auto sm:right-6 z-50 bg-slate-900/95 border border-indigo-500/60 shadow-2xl rounded-xl p-3 sm:p-4 flex items-start gap-3 text-slate-100 text-xs sm:max-w-lg backdrop-blur animate-in fade-in slide-in-from-bottom-2 duration-200 overflow-hidden">
             <Check className="w-5 h-5 text-emerald-400 shrink-0 mt-0.5" />
-            <div className="flex-1 min-w-0">
-              <div className="font-semibold text-white mb-0.5">{toastMessage.title}</div>
+            <div className="flex-1 min-w-0 overflow-hidden">
+              <div className="font-semibold text-white mb-0.5 truncate">{toastMessage.title}</div>
               <div className="text-slate-300 text-[11px] mb-1.5">{toastMessage.body}</div>
               <div className="bg-slate-950 px-2.5 py-1.5 rounded border border-slate-800 font-mono text-[11px] text-indigo-300 truncate select-all mb-1.5">
                 {toastMessage.code}
               </div>
-              <div className="text-[10px] text-slate-400 flex items-center gap-1.5">
+              <div className="text-[10px] text-slate-400 flex items-center gap-1.5 truncate">
                 <span>Want 1-click reveal?</span>
                 <a
                   href="/mattlab-reveal-setup.reg"
                   download
-                  className="text-indigo-400 hover:text-indigo-300 underline font-medium"
+                  className="text-indigo-400 hover:text-indigo-300 underline font-medium shrink-0"
                 >
                   Download .reg setup
                 </a>
@@ -730,7 +731,7 @@ export default function App() {
             </div>
             <button
               onClick={() => setToastMessage(null)}
-              className="text-slate-500 hover:text-slate-300 ml-1 p-0.5"
+              className="text-slate-500 hover:text-slate-300 ml-1 p-0.5 shrink-0"
             >
               <X className="w-4 h-4" />
             </button>
