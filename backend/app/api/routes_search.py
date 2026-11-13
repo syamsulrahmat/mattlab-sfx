@@ -54,6 +54,7 @@ def search_sfx(
             item = dict(r)
             win_path = f"{SMB_BASE_PATH}\\{item['rel_path'].replace('/', chr(92))}"
             item["smb_path"] = win_path
+            item["explorer_cmd"] = f'explorer.exe /select,"{win_path}"'
             results.append(item)
 
         if terms:

@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import WaveSurfer from 'wavesurfer.js';
-import { Play, Pause, Search, Volume2, Copy, Check, RefreshCw, Zap, Tag, X, Edit2, Wand2, Brain, Square } from 'lucide-react';
+import { Play, Pause, Search, Volume2, Copy, Check, RefreshCw, Zap, Tag, X, Edit2, Wand2, Brain, Square, FolderOpen, GripVertical } from 'lucide-react';
 
 interface AudioItem {
   id: number;
@@ -13,6 +13,7 @@ interface AudioItem {
   sample_rate: number;
   channels: number;
   smb_path: string;
+  explorer_cmd?: string;
   description: string;
 }
 
@@ -24,12 +25,13 @@ export default function App() {
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [copiedId, setCopiedId] = useState<number | null>(null);
+  const [revealedId, setRevealedId] = useState<number | null>(null);
   const [scanning, setScanning] = useState(false);
   const [categories, setCategories] = useState<{ category: string; sub_category: string; count: number }[]>([]);
   const [editingId, setEditingId] = useState<number | null>(null);
   const [editValue, setEditValue] = useState('');
   const [listeningId, setListeningId] = useState<number | null>(null);
-  const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const [toastMessage, setToastMessage] = useState<{ title: string; body: string; code: string } | null>(null);
   const [aiStatus, setAiStatus] = useState<{ is_running: boolean; total: number; processed: number; last_result: string }>({
     is_running: false,
     total: 0,
@@ -210,14 +212,42 @@ export default function App() {
     }
   };
 
+  const copyExplorer = async (item: AudioItem) => {
+    const cmd = item.explorer_cmd || `explorer.exe /select,"${item.smb_path}"`;
+    const success = await copyToClipboard(cmd);
+    if (success) {
+      setRevealedId(item.id);
+      setToastMessage({
+        title: "Copied Explorer Command!",
+        body: "Press Win + R and paste (Ctrl+V) to open File Explorer with this file automatically selected.",
+        code: cmd
+      });
+      setTimeout(() => setRevealedId(null), 2000);
+      setTimeout(() => setToastMessage(null), 6000);
+    }
+  };
+
   const copySMB = async (item: AudioItem) => {
     const success = await copyToClipboard(item.smb_path);
     if (success) {
       setCopiedId(item.id);
-      setToastMessage(item.smb_path);
+      setToastMessage({
+        title: "Copied Raw SMB Path!",
+        body: "Windows network path ready for your DAW, NLE, or file picker.",
+        code: item.smb_path
+      });
       setTimeout(() => setCopiedId(null), 2000);
-      setTimeout(() => setToastMessage(null), 3500);
+      setTimeout(() => setToastMessage(null), 4500);
     }
+  };
+
+  const handleDragStart = (e: React.DragEvent, item: AudioItem) => {
+    const streamUrl = `${window.location.origin}/api/audio/stream/${item.id}`;
+    // Chromium DownloadURL extension allows dropping into Windows Explorer / Desktop / Premiere
+    e.dataTransfer.setData("DownloadURL", `audio/wav:${item.filename}:${streamUrl}`);
+    e.dataTransfer.setData("text/plain", item.smb_path);
+    e.dataTransfer.setData("text/uri-list", streamUrl);
+    e.dataTransfer.effectAllowed = "copy";
   };
 
   const saveCustomName = async (id: number) => {
@@ -520,16 +550,41 @@ export default function App() {
                     <td className="py-2.5 px-4 text-slate-400">{item.duration ? `${item.duration}s` : '-'}</td>
                     <td className="py-2.5 px-4 text-slate-400">{item.sample_rate ? `${item.sample_rate} Hz` : '-'}</td>
                     <td className="py-2.5 px-4 text-right">
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          copySMB(item);
-                        }}
-                        title={`Copy Windows SMB Path:\n${item.smb_path}`}
-                        className="p-1.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition"
-                      >
-                        {copiedId === item.id ? <Check className="w-4 h-4 text-emerald-400" /> : <Copy className="w-4 h-4" />}
-                      </button>
+                      <div className="flex items-center justify-end gap-1.5">
+                        {/* Drag Handle for Premiere / Explorer */}
+                        <div
+                          draggable
+                          onDragStart={(e) => handleDragStart(e, item)}
+                          title="Drag directly into Premiere Pro or Windows Explorer"
+                          className="cursor-grab active:cursor-grabbing p-1.5 rounded hover:bg-slate-800 text-slate-500 hover:text-indigo-300 transition"
+                        >
+                          <GripVertical className="w-4 h-4" />
+                        </div>
+
+                        {/* Reveal & Select in Explorer (Win+R command) */}
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            copyExplorer(item);
+                          }}
+                          title={`Reveal & Select in Windows Explorer:\nexplorer.exe /select,"${item.smb_path}"\n(Press Win+R -> Ctrl+V -> Enter)`}
+                          className="p-1.5 rounded bg-indigo-900/30 hover:bg-indigo-600/50 text-indigo-300 hover:text-white transition"
+                        >
+                          {revealedId === item.id ? <Check className="w-4 h-4 text-emerald-400" /> : <FolderOpen className="w-4 h-4" />}
+                        </button>
+
+                        {/* Copy Raw SMB Path */}
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            copySMB(item);
+                          }}
+                          title={`Copy Raw SMB Path:\n${item.smb_path}`}
+                          className="p-1.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white transition"
+                        >
+                          {copiedId === item.id ? <Check className="w-4 h-4 text-emerald-400" /> : <Copy className="w-4 h-4" />}
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 );
@@ -570,13 +625,37 @@ export default function App() {
                   <Wand2 className={`w-3.5 h-3.5 ${listeningId === currentItem.id ? 'animate-spin' : ''}`} />
                   AI Listen
                 </button>
+
+                {/* Reveal in Explorer Button */}
+                <button
+                  onClick={() => copyExplorer(currentItem)}
+                  className="flex items-center gap-1.5 text-xs bg-indigo-900/50 hover:bg-indigo-600/70 text-indigo-200 px-3 py-1.5 rounded-lg border border-indigo-700/50 transition"
+                  title="Copy command to open Windows Explorer with this file selected"
+                >
+                  {revealedId === currentItem.id ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <FolderOpen className="w-3.5 h-3.5" />}
+                  Reveal in Explorer
+                </button>
+
+                {/* Copy Raw SMB Path Button */}
                 <button
                   onClick={() => copySMB(currentItem)}
-                  className="flex items-center gap-1.5 text-xs bg-slate-800 hover:bg-slate-700 text-indigo-300 px-3 py-1.5 rounded-lg border border-slate-700 transition"
+                  className="flex items-center gap-1.5 text-xs bg-slate-800 hover:bg-slate-700 text-slate-300 px-3 py-1.5 rounded-lg border border-slate-700 transition"
+                  title="Copy Windows SMB network path"
                 >
-                  {copiedId === currentItem.id ? <Check className="w-3.5 h-3.5 text-green-400" /> : <Copy className="w-3.5 h-3.5" />}
+                  {copiedId === currentItem.id ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
                   Copy SMB Path
                 </button>
+
+                {/* Draggable Badge for Premiere */}
+                <div
+                  draggable
+                  onDragStart={(e) => handleDragStart(e, currentItem)}
+                  className="cursor-grab active:cursor-grabbing flex items-center gap-1.5 text-xs bg-slate-800/80 hover:bg-slate-700 text-slate-300 px-3 py-1.5 rounded-lg border border-slate-700 select-none transition"
+                  title="Click and drag onto Desktop or Premiere Pro"
+                >
+                  <GripVertical className="w-3.5 h-3.5 text-slate-400" />
+                  Drag to Premiere
+                </div>
               </div>
             )}
           </div>
@@ -586,12 +665,21 @@ export default function App() {
 
         {/* Toast Notification for Clipboard */}
         {toastMessage && (
-          <div className="fixed bottom-32 right-6 z-50 bg-slate-900 border border-indigo-500/60 shadow-2xl rounded-lg px-4 py-3 flex items-center gap-3 text-slate-100 text-xs animate-in fade-in slide-in-from-bottom-2 duration-200">
-            <Check className="w-4 h-4 text-emerald-400 shrink-0" />
-            <div className="max-w-md truncate">
-              <span className="text-slate-400 font-medium">Copied SMB Path: </span>
-              <span className="font-mono text-emerald-300 font-semibold">{toastMessage}</span>
+          <div className="fixed bottom-32 right-6 z-50 bg-slate-900/95 border border-indigo-500/60 shadow-2xl rounded-xl p-4 flex items-start gap-3 text-slate-100 text-xs max-w-lg backdrop-blur animate-in fade-in slide-in-from-bottom-2 duration-200">
+            <Check className="w-5 h-5 text-emerald-400 shrink-0 mt-0.5" />
+            <div className="flex-1 min-w-0">
+              <div className="font-semibold text-white mb-0.5">{toastMessage.title}</div>
+              <div className="text-slate-300 text-[11px] mb-2">{toastMessage.body}</div>
+              <div className="bg-slate-950 px-2.5 py-1.5 rounded border border-slate-800 font-mono text-[11px] text-indigo-300 truncate select-all">
+                {toastMessage.code}
+              </div>
             </div>
+            <button
+              onClick={() => setToastMessage(null)}
+              className="text-slate-500 hover:text-slate-300 ml-1 p-0.5"
+            >
+              <X className="w-4 h-4" />
+            </button>
           </div>
         )}
       </div>
