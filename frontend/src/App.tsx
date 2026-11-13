@@ -29,6 +29,7 @@ export default function App() {
   const [editingId, setEditingId] = useState<number | null>(null);
   const [editValue, setEditValue] = useState('');
   const [listeningId, setListeningId] = useState<number | null>(null);
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [aiStatus, setAiStatus] = useState<{ is_running: boolean; total: number; processed: number; last_result: string }>({
     is_running: false,
     total: 0,
@@ -178,10 +179,45 @@ export default function App() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [results, selectedId, editingId]);
 
-  const copySMB = (item: AudioItem) => {
-    navigator.clipboard.writeText(item.smb_path);
-    setCopiedId(item.id);
-    setTimeout(() => setCopiedId(null), 2000);
+  const copyToClipboard = async (text: string): Promise<boolean> => {
+    // 1. Try modern navigator.clipboard if in a secure context
+    if (navigator.clipboard && window.isSecureContext) {
+      try {
+        await navigator.clipboard.writeText(text);
+        return true;
+      } catch {
+        // Fallback below
+      }
+    }
+
+    // 2. Reliable fallback for HTTP / LAN IP origins
+    try {
+      const textArea = document.createElement('textarea');
+      textArea.value = text;
+      textArea.style.position = 'fixed';
+      textArea.style.left = '-999999px';
+      textArea.style.top = '-999999px';
+      textArea.style.opacity = '0';
+      document.body.appendChild(textArea);
+      textArea.focus();
+      textArea.select();
+      const successful = document.execCommand('copy');
+      document.body.removeChild(textArea);
+      return successful;
+    } catch (err) {
+      console.error('Fallback clipboard copy failed:', err);
+      return false;
+    }
+  };
+
+  const copySMB = async (item: AudioItem) => {
+    const success = await copyToClipboard(item.smb_path);
+    if (success) {
+      setCopiedId(item.id);
+      setToastMessage(item.smb_path);
+      setTimeout(() => setCopiedId(null), 2000);
+      setTimeout(() => setToastMessage(null), 3500);
+    }
   };
 
   const saveCustomName = async (id: number) => {
@@ -489,10 +525,10 @@ export default function App() {
                           e.stopPropagation();
                           copySMB(item);
                         }}
-                        title="Copy Windows SMB Path for DAW/Video Editor"
+                        title={`Copy Windows SMB Path:\n${item.smb_path}`}
                         className="p-1.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition"
                       >
-                        {copiedId === item.id ? <Check className="w-4 h-4 text-green-400" /> : <Copy className="w-4 h-4" />}
+                        {copiedId === item.id ? <Check className="w-4 h-4 text-emerald-400" /> : <Copy className="w-4 h-4" />}
                       </button>
                     </td>
                   </tr>
@@ -547,6 +583,17 @@ export default function App() {
 
           <div ref={waveformRef} className="w-full" />
         </div>
+
+        {/* Toast Notification for Clipboard */}
+        {toastMessage && (
+          <div className="fixed bottom-32 right-6 z-50 bg-slate-900 border border-indigo-500/60 shadow-2xl rounded-lg px-4 py-3 flex items-center gap-3 text-slate-100 text-xs animate-in fade-in slide-in-from-bottom-2 duration-200">
+            <Check className="w-4 h-4 text-emerald-400 shrink-0" />
+            <div className="max-w-md truncate">
+              <span className="text-slate-400 font-medium">Copied SMB Path: </span>
+              <span className="font-mono text-emerald-300 font-semibold">{toastMessage}</span>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
