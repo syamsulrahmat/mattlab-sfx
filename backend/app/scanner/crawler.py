@@ -4,6 +4,7 @@ from app.db.database import get_db
 from app.scanner.tokenizer import tokenize_path
 from app.scanner.ucs import match_ucs
 from app.scanner.metadata_extractor import extract_metadata
+from app.scanner.renamer import generate_smart_name
 
 SUPPORTED_EXTS = {'.wav', '.mp3', '.flac', '.aif', '.aiff', '.ogg'}
 
@@ -31,7 +32,6 @@ def scan_library(sfx_dir: str):
     
     conn = get_db()
     try:
-        # Collect existing paths to do incremental updates
         existing = {row["rel_path"]: (row["mtime"], row["pack"]) for row in conn.execute("SELECT rel_path, mtime, pack FROM audio_files").fetchall()}
         
         candidates = []
@@ -54,7 +54,6 @@ def scan_library(sfx_dir: str):
                 
                 pack, folder = parse_pack_and_folder(rel_path)
 
-                # Check if file changed, is new, or needs pack populated
                 if rel_path in existing:
                     old_mtime, old_pack = existing[rel_path]
                     if abs(old_mtime - mtime) < 1.0 and old_pack:
@@ -64,10 +63,12 @@ def scan_library(sfx_dir: str):
                 tokens = tokenize_path(rel_path)
                 cat_code, cat_name = match_ucs(tokens)
                 meta = extract_metadata(full_path)
+                display_name = generate_smart_name(filename, pack=pack, folder=folder, title=meta["title"])
 
                 batch.append((
                     rel_path,
                     filename,
+                    display_name,
                     ext,
                     size,
                     mtime,
@@ -89,10 +90,10 @@ def scan_library(sfx_dir: str):
                     with conn:
                         conn.executemany("""
                             INSERT INTO audio_files (
-                                rel_path, filename, extension, file_size, mtime,
+                                rel_path, filename, display_name, extension, file_size, mtime,
                                 duration, sample_rate, channels, bit_depth,
                                 category, sub_category, pack, folder, title, description, designer, tokens
-                            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                             ON CONFLICT(rel_path) DO UPDATE SET
                                 mtime=excluded.mtime,
                                 file_size=excluded.file_size,
@@ -119,10 +120,10 @@ def scan_library(sfx_dir: str):
             with conn:
                 conn.executemany("""
                     INSERT INTO audio_files (
-                        rel_path, filename, extension, file_size, mtime,
+                        rel_path, filename, display_name, extension, file_size, mtime,
                         duration, sample_rate, channels, bit_depth,
                         category, sub_category, pack, folder, title, description, designer, tokens
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     ON CONFLICT(rel_path) DO UPDATE SET
                         mtime=excluded.mtime,
                         file_size=excluded.file_size,

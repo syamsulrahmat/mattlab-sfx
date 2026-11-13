@@ -1,10 +1,11 @@
 import React, { useState, useEffect, useRef } from 'react';
 import WaveSurfer from 'wavesurfer.js';
-import { Play, Pause, Search, Folder, Volume2, Copy, Check, RefreshCw, Zap, Layers, Tag, X } from 'lucide-react';
+import { Play, Pause, Search, Folder, Volume2, Copy, Check, RefreshCw, Zap, Layers, Tag, X, Edit2 } from 'lucide-react';
 
 interface AudioItem {
   id: number;
   filename: string;
+  display_name: string;
   rel_path: string;
   pack: string;
   folder: string;
@@ -30,6 +31,8 @@ export default function App() {
   const [scanning, setScanning] = useState(false);
   const [categories, setCategories] = useState<{ category: string; sub_category: string; count: number }[]>([]);
   const [packs, setPacks] = useState<{ pack: string; count: number }[]>([]);
+  const [editingId, setEditingId] = useState<number | null>(null);
+  const [editValue, setEditValue] = useState('');
 
   const waveformRef = useRef<HTMLDivElement>(null);
   const wavesurfer = useRef<WaveSurfer | null>(null);
@@ -118,7 +121,7 @@ export default function App() {
   // Keyboard navigation, playback controls & search shortcut
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      const isInput = document.activeElement === searchInputRef.current;
+      const isInput = document.activeElement === searchInputRef.current || editingId !== null;
 
       if (!isInput && (e.key === '/' || ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k'))) {
         e.preventDefault();
@@ -130,8 +133,12 @@ export default function App() {
       if (isInput) {
         if (e.key === 'Escape') {
           e.preventDefault();
-          searchInputRef.current?.blur();
-        } else if (e.key === 'ArrowDown' || e.key === 'Enter') {
+          if (editingId !== null) {
+            setEditingId(null);
+          } else {
+            searchInputRef.current?.blur();
+          }
+        } else if (document.activeElement === searchInputRef.current && (e.key === 'ArrowDown' || e.key === 'Enter')) {
           e.preventDefault();
           searchInputRef.current?.blur();
           if (results.length > 0 && selectedId === null) {
@@ -163,12 +170,33 @@ export default function App() {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [results, selectedId]);
+  }, [results, selectedId, editingId]);
 
   const copySMB = (item: AudioItem) => {
     navigator.clipboard.writeText(item.smb_path);
     setCopiedId(item.id);
     setTimeout(() => setCopiedId(null), 2000);
+  };
+
+  const saveCustomName = async (id: number) => {
+    if (!editValue.trim()) {
+      setEditingId(null);
+      return;
+    }
+    try {
+      await fetch(`/api/audio/${id}/name`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ display_name: editValue.trim() })
+      });
+      setResults((prev) =>
+        prev.map((item) => (item.id === id ? { ...item, display_name: editValue.trim() } : item))
+      );
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setEditingId(null);
+    }
   };
 
   const triggerScan = async () => {
@@ -332,7 +360,7 @@ export default function App() {
             <thead className="bg-slate-900/60 text-slate-400 text-xs uppercase sticky top-0 backdrop-blur z-10 border-b border-slate-800">
               <tr>
                 <th className="py-2.5 px-4 w-12">Play</th>
-                <th className="py-2.5 px-4">Filename & Collection</th>
+                <th className="py-2.5 px-4">Sound Effect & Details</th>
                 <th className="py-2.5 px-4">Category</th>
                 <th className="py-2.5 px-4">Duration</th>
                 <th className="py-2.5 px-4">Sample Rate</th>
@@ -342,6 +370,8 @@ export default function App() {
             <tbody className="divide-y divide-slate-800/50">
               {results.map((item) => {
                 const isSelected = item.id === selectedId;
+                const isEditing = editingId === item.id;
+
                 return (
                   <tr
                     key={item.id}
@@ -350,7 +380,7 @@ export default function App() {
                       isSelected ? 'bg-indigo-950/40 border-l-2 border-indigo-500' : 'hover:bg-slate-900/50'
                     }`}
                   >
-                    <td className="py-2 px-4">
+                    <td className="py-2.5 px-4">
                       <button
                         onClick={(e) => {
                           e.stopPropagation();
@@ -365,9 +395,48 @@ export default function App() {
                         {isSelected && isPlaying ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4 ml-0.5" />}
                       </button>
                     </td>
-                    <td className="py-2 px-4 font-medium text-slate-200">
+                    <td className="py-2.5 px-4 font-medium text-slate-200">
                       <div className="flex items-center gap-2">
-                        <span>{item.filename}</span>
+                        {isEditing ? (
+                          <input
+                            type="text"
+                            value={editValue}
+                            autoFocus
+                            onClick={(e) => e.stopPropagation()}
+                            onChange={(e) => setEditValue(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') saveCustomName(item.id);
+                              if (e.key === 'Escape') setEditingId(null);
+                            }}
+                            onBlur={() => saveCustomName(item.id)}
+                            className="bg-slate-800 border border-indigo-500 rounded px-2 py-0.5 text-sm text-white focus:outline-none"
+                          />
+                        ) : (
+                          <span
+                            onDoubleClick={(e) => {
+                              e.stopPropagation();
+                              setEditingId(item.id);
+                              setEditValue(item.display_name || item.filename);
+                            }}
+                            className="font-semibold text-slate-100 hover:text-indigo-300 transition"
+                            title="Double-click to rename"
+                          >
+                            {item.display_name || item.filename}
+                          </span>
+                        )}
+
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setEditingId(item.id);
+                            setEditValue(item.display_name || item.filename);
+                          }}
+                          className="opacity-0 group-hover:opacity-100 hover:opacity-100 text-slate-500 hover:text-slate-300 p-0.5 rounded transition"
+                          title="Rename sound in app"
+                        >
+                          <Edit2 className="w-3 h-3" />
+                        </button>
+
                         {item.pack && (
                           <button
                             onClick={(e) => {
@@ -375,23 +444,28 @@ export default function App() {
                               setPack(item.pack);
                               setSidebarTab('packs');
                             }}
-                            className="text-[11px] font-normal text-indigo-400 hover:text-indigo-300 bg-indigo-950/70 border border-indigo-800/50 px-2 py-0.5 rounded transition"
+                            className="text-[11px] font-normal text-indigo-400 hover:text-indigo-300 bg-indigo-950/70 border border-indigo-800/50 px-2 py-0.5 rounded transition ml-1"
                             title={`Filter library to ${item.pack}`}
                           >
                             {item.pack}
                           </button>
                         )}
                       </div>
-                      {item.folder && <div className="text-xs text-slate-500 truncate max-w-md">{item.folder}</div>}
+
+                      {/* Subtitle: Original filename & folder */}
+                      <div className="text-xs text-slate-400 flex items-center gap-2 mt-0.5">
+                        <span className="font-mono text-slate-500">{item.filename}</span>
+                        {item.folder && <span>• {item.folder}</span>}
+                      </div>
                     </td>
-                    <td className="py-2 px-4">
+                    <td className="py-2.5 px-4">
                       <span className="inline-block bg-slate-800 text-slate-300 text-xs px-2 py-0.5 rounded">
                         {item.sub_category || item.category}
                       </span>
                     </td>
-                    <td className="py-2 px-4 text-slate-400">{item.duration ? `${item.duration}s` : '-'}</td>
-                    <td className="py-2 px-4 text-slate-400">{item.sample_rate ? `${item.sample_rate} Hz` : '-'}</td>
-                    <td className="py-2 px-4 text-right">
+                    <td className="py-2.5 px-4 text-slate-400">{item.duration ? `${item.duration}s` : '-'}</td>
+                    <td className="py-2.5 px-4 text-slate-400">{item.sample_rate ? `${item.sample_rate} Hz` : '-'}</td>
+                    <td className="py-2.5 px-4 text-right">
                       <button
                         onClick={(e) => {
                           e.stopPropagation();
@@ -423,10 +497,10 @@ export default function App() {
               </button>
               <div>
                 <div className="text-sm font-semibold text-white">
-                  {currentItem ? currentItem.filename : 'Select a sound effect to preview'}
+                  {currentItem ? (currentItem.display_name || currentItem.filename) : 'Select a sound effect to preview'}
                 </div>
                 <div className="text-xs text-slate-400">
-                  {currentItem ? `${currentItem.rel_path} • [Space] to Play/Pause, [Arrows] to Navigate` : 'Shortcut keys enabled'}
+                  {currentItem ? `${currentItem.filename} • [Space] to Play/Pause, [Arrows] to Navigate` : 'Shortcut keys enabled'}
                 </div>
               </div>
             </div>

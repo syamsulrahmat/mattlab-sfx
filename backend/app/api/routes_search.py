@@ -1,5 +1,5 @@
 import os
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Query, HTTPException, Body
 from app.db.database import get_db
 
 router = APIRouter()
@@ -19,7 +19,6 @@ def search_sfx(
         params = []
         
         if terms:
-            # FTS5 Prefix matching for instant typing
             fts_query = " ".join([f'"{t}"*' for t in terms.split()])
             base_sql = """
                 SELECT a.*, bm25(audio_fts) as rank
@@ -63,7 +62,6 @@ def search_sfx(
             item["smb_path"] = win_path
             results.append(item)
 
-        # Count total
         if terms:
             count_sql = """
                 SELECT COUNT(*) FROM audio_files a
@@ -83,7 +81,7 @@ def search_sfx(
             count_params = []
             if conditions:
                 count_sql += " WHERE " + " AND ".join(conditions)
-                count_params.extend(params[:-2]) # Exclude limit and offset
+                count_params.extend(params[:-2])
             total = conn.execute(count_sql, count_params).fetchone()[0]
 
         return {
@@ -121,5 +119,21 @@ def get_packs():
             ORDER BY count DESC
         """).fetchall()
         return [dict(r) for r in rows]
+    finally:
+        conn.close()
+
+@router.patch("/audio/{file_id}/name")
+def update_display_name(file_id: int, payload: dict = Body(...)):
+    new_name = payload.get("display_name", "").strip()
+    if not new_name:
+        raise HTTPException(status_code=400, detail="display_name cannot be empty")
+        
+    conn = get_db()
+    try:
+        with conn:
+            cursor = conn.execute("UPDATE audio_files SET display_name = ? WHERE id = ?", (new_name, file_id))
+            if cursor.rowcount == 0:
+                raise HTTPException(status_code=404, detail="Audio file not found")
+        return {"status": "success", "id": file_id, "display_name": new_name}
     finally:
         conn.close()
