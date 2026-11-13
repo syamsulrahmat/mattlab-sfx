@@ -361,63 +361,22 @@ export default function App() {
           </button>
         </div>
 
-        {/* AI Batch Processor Card */}
-        <div className="bg-slate-800/70 border border-slate-700 rounded-lg p-3 mb-4">
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-xs font-semibold text-amber-300 flex items-center gap-1.5">
-              <Brain className="w-3.5 h-3.5" />
-              AI Acoustic Renaming
-            </span>
-            <button
-              onClick={toggleBatchAi}
-              className={`p-1 rounded text-xs transition ${
-                aiStatus.is_running
-                  ? 'bg-rose-600/80 hover:bg-rose-500 text-white'
-                  : 'bg-amber-600/80 hover:bg-amber-500 text-white'
-              }`}
-              title={aiStatus.is_running ? 'Pause batch acoustic renaming' : 'Start unified acoustic renaming for whole library'}
-            >
-              {aiStatus.is_running ? <Square className="w-3 h-3" /> : <Play className="w-3 h-3 ml-0.5" />}
-            </button>
-          </div>
-          <div className="text-[11px] text-slate-400">
-            {aiStatus.is_running
-              ? `Listening: ${aiStatus.processed} / ${aiStatus.total}`
-              : `Unified renaming: ${aiStatus.processed || 0} / ${aiStatus.total || 0} classified`}
-          </div>
-          {aiStatus.is_running && (
-            <div className="w-full bg-slate-700 h-1.5 rounded-full overflow-hidden mt-2">
-              <div
-                className="bg-amber-400 h-full transition-all duration-300"
-                style={{
-                  width: `${aiStatus.total ? (aiStatus.processed / aiStatus.total) * 100 : 0}%`
-                }}
-              />
-            </div>
-          )}
-          {aiStatus.last_result && (
-            <div className="text-[10px] text-amber-400/80 truncate mt-1.5">
-              Latest: {aiStatus.last_result}
-            </div>
-          )}
-        </div>
-
         <button
           onClick={triggerScan}
           disabled={scanning}
-          className="flex items-center justify-center gap-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg py-2 px-3 text-sm font-medium transition mb-5 shadow-sm"
+          className="flex items-center justify-center gap-2 bg-indigo-600/90 hover:bg-indigo-500 text-white rounded-lg py-2 px-3 text-sm font-medium transition mb-4 shadow-sm shrink-0"
         >
           <RefreshCw className={`w-4 h-4 ${scanning ? 'animate-spin' : ''}`} />
           {scanning ? 'Scanning...' : 'Rescan Library'}
         </button>
 
-        <h2 className="text-xs font-semibold uppercase tracking-wider text-slate-400 mb-2 px-2 flex items-center gap-1.5">
+        <h2 className="text-xs font-semibold uppercase tracking-wider text-slate-400 mb-2 px-2 flex items-center gap-1.5 shrink-0">
           <Tag className="w-3.5 h-3.5" />
           Categories
         </h2>
 
-        {/* Categories List */}
-        <div className="flex-1 overflow-y-auto space-y-1 pr-1">
+        {/* Categories List (Scrollable Area) */}
+        <div className="flex-1 overflow-y-auto min-h-0 space-y-1 pr-1">
           <button
             onClick={() => {
               setCategory('');
@@ -444,6 +403,56 @@ export default function App() {
               <span className="text-xs text-slate-500">{c.count}</span>
             </button>
           ))}
+        </div>
+
+        {/* Bottom-Left Corner: AI Background Progress & Status */}
+        <div className="mt-3 pt-3 border-t border-slate-800 shrink-0">
+          <div className="bg-slate-800/80 border border-slate-700/80 rounded-lg p-2.5">
+            <div className="flex items-center justify-between mb-1.5">
+              <span className="text-xs font-semibold text-amber-300 flex items-center gap-1.5">
+                <Brain className="w-3.5 h-3.5" />
+                AI Acoustic Renaming
+              </span>
+              <button
+                onClick={toggleBatchAi}
+                className={`p-1 rounded text-xs transition ${
+                  aiStatus.is_running
+                    ? 'bg-rose-600/80 hover:bg-rose-500 text-white'
+                    : 'bg-amber-600/80 hover:bg-amber-500 text-white'
+                }`}
+                title={aiStatus.is_running ? 'Pause batch acoustic renaming' : 'Start unified acoustic renaming for whole library'}
+              >
+                {aiStatus.is_running ? <Square className="w-3 h-3" /> : <Play className="w-3 h-3 ml-0.5" />}
+              </button>
+            </div>
+            <div className="text-[11px] text-slate-400 flex items-center justify-between">
+              <span>{aiStatus.is_running ? 'Processing' : 'Unified library:'}</span>
+              <span className="font-mono text-slate-300">
+                {(aiStatus.processed || 0).toLocaleString()} / {(aiStatus.total || 0).toLocaleString()}
+              </span>
+            </div>
+            {aiStatus.is_running && (
+              <div className="w-full bg-slate-700 h-1.5 rounded-full overflow-hidden mt-1.5">
+                <div
+                  className="bg-gradient-to-r from-amber-400 to-amber-500 h-full transition-all duration-300"
+                  style={{
+                    width: `${aiStatus.total ? (aiStatus.processed / aiStatus.total) * 100 : 0}%`
+                  }}
+                />
+              </div>
+            )}
+            <div className="text-[10px] text-slate-400 flex items-center justify-between mt-1">
+              <span>Remaining:</span>
+              <span className="font-mono text-amber-300/90 font-medium">
+                {(aiStatus.remaining ?? (aiStatus.total ? aiStatus.total - (aiStatus.processed || 0) : 0)).toLocaleString()} files
+              </span>
+            </div>
+            {aiStatus.last_result && (
+              <div className="text-[10px] text-amber-400/80 truncate mt-1 pt-1 border-t border-slate-700/50" title={aiStatus.current_file || ''}>
+                Latest: {aiStatus.last_result}
+              </div>
+            )}
+          </div>
         </div>
       </div>
 
