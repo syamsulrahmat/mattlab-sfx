@@ -334,14 +334,9 @@ export default function App() {
     <div className="flex h-screen bg-slate-950 text-slate-100 font-sans overflow-hidden">
       {/* Sidebar: Categories */}
       <div className="w-64 bg-slate-900 border-r border-slate-800 flex flex-col p-4">
-        <div className="mb-4 px-2">
-          <div className="flex items-center gap-2">
-            <Zap className="w-6 h-6 text-indigo-400" />
-            <h1 className="text-xl font-bold tracking-tight text-white">MattLab SFX</h1>
-          </div>
-          <div className="text-[11px] text-slate-400 font-medium ml-8 -mt-0.5">
-            {roundedLibraryApprox}+ Sounds Library
-          </div>
+        <div className="flex items-center gap-2 mb-4 px-2">
+          <Zap className="w-6 h-6 text-indigo-400" />
+          <h1 className="text-xl font-bold tracking-tight text-white">MattLab SFX</h1>
         </div>
 
         {/* AI Batch Processor Card */}
