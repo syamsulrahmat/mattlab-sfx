@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react';
 import WaveSurfer from 'wavesurfer.js';
-import { Play, Pause, Search, Volume2, Copy, Check, RefreshCw, Tag, X, Edit2, Wand2, Brain, Square, FolderOpen, Menu, ArrowUpDown, ArrowUp, ArrowDown, Download, Bookmark } from 'lucide-react';
+import { Play, Pause, Search, Volume2, Copy, Check, RefreshCw, Tag, X, Edit2, Wand2, Brain, Square, FolderOpen, Menu, ArrowUpDown, ArrowUp, ArrowDown, Download, Bookmark, FolderPlus, Trash2, Plus, Folder } from 'lucide-react';
 import { Logo } from './components/Logo';
 import { AudioPlayer } from './components/AudioPlayer';
+import { ProjectAssignModal, ProjectCollection } from './components/ProjectAssignModal';
 
 interface AudioItem {
   id: number;
@@ -43,6 +44,14 @@ export default function App() {
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
   const [collectionIds, setCollectionIds] = useState<Set<number>>(new Set());
   const [collectionOnly, setCollectionOnly] = useState<boolean>(false);
+  const [projects, setProjects] = useState<ProjectCollection[]>([]);
+  const [activeProjectId, setActiveProjectId] = useState<number | null>(null);
+  const [projectAssignments, setProjectAssignments] = useState<Record<number, number[]>>({});
+  const [assignModalSound, setAssignModalSound] = useState<AudioItem | null>(null);
+  const [newProjectInline, setNewProjectInline] = useState(false);
+  const [newProjectName, setNewProjectName] = useState('');
+  const [editingProjectId, setEditingProjectId] = useState<number | null>(null);
+  const [editProjectName, setEditProjectName] = useState('');
   const isLoopingRef = useRef(false);
   isLoopingRef.current = isLooping;
 
@@ -103,8 +112,36 @@ export default function App() {
     }
   };
 
+  // Fetch project collections list
+  const fetchProjects = async () => {
+    try {
+      const res = await fetch('/api/projects');
+      if (res.ok) {
+        const data = await res.json();
+        setProjects(data);
+      }
+    } catch (e) {
+      console.error('Error fetching projects:', e);
+    }
+  };
+
+  // Fetch project assignments map
+  const fetchProjectAssignments = async () => {
+    try {
+      const res = await fetch('/api/projects/assignments');
+      if (res.ok) {
+        const data = await res.json();
+        setProjectAssignments(data);
+      }
+    } catch (e) {
+      console.error('Error fetching project assignments:', e);
+    }
+  };
+
   useEffect(() => {
     fetchCollectionIds();
+    fetchProjects();
+    fetchProjectAssignments();
   }, []);
 
   // Fetch search results
@@ -113,17 +150,110 @@ export default function App() {
     cat: string,
     sBy: string = sortBy,
     sOrder: string = sortOrder,
-    cOnly: boolean = collectionOnly
+    cOnly: boolean = collectionOnly,
+    pId: number | null = activeProjectId
   ) => {
     try {
+      const pParam = pId !== null ? `&project_id=${pId}` : '';
       const res = await fetch(
-        `/api/search?q=${encodeURIComponent(q)}&category=${encodeURIComponent(cat)}&sort_by=${encodeURIComponent(sBy)}&sort_order=${encodeURIComponent(sOrder)}&collection_only=${cOnly}&limit=100`
+        `/api/search?q=${encodeURIComponent(q)}&category=${encodeURIComponent(cat)}&sort_by=${encodeURIComponent(sBy)}&sort_order=${encodeURIComponent(sOrder)}&collection_only=${cOnly}${pParam}&limit=100`
       );
       const data = await res.json();
       setResults(data.results || []);
       setTotal(data.total || 0);
     } catch (e) {
       console.error(e);
+    }
+  };
+
+  const handleCreateProject = async (name: string, color: string = '#f59e0b'): Promise<number | null> => {
+    try {
+      const res = await fetch('/api/projects', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, color }),
+      });
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.detail || 'Failed to create project');
+      }
+      const data = await res.json();
+      await fetchProjects();
+      return data.project.id;
+    } catch (e: any) {
+      alert(e.message || 'Error creating project');
+      return null;
+    }
+  };
+
+  const handleRenameProject = async (projectId: number, newName: string) => {
+    const trimmed = newName.trim();
+    if (!trimmed) return;
+    try {
+      const res = await fetch(`/api/projects/${projectId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: trimmed }),
+      });
+      if (res.ok) {
+        await fetchProjects();
+        setEditingProjectId(null);
+      } else {
+        const err = await res.json();
+        alert(err.detail || 'Error renaming project');
+      }
+    } catch (e) {
+      console.error('Error renaming project:', e);
+    }
+  };
+
+  const handleDeleteProject = async (projectId: number, projectName: string) => {
+    if (!window.confirm(`Are you sure you want to delete project "${projectName}"?\n\nSounds will remain safe in your library and My Collection.`)) {
+      return;
+    }
+    try {
+      const res = await fetch(`/api/projects/${projectId}`, { method: 'DELETE' });
+      if (res.ok) {
+        if (activeProjectId === projectId) {
+          setActiveProjectId(null);
+        }
+        await fetchProjects();
+        await fetchProjectAssignments();
+      }
+    } catch (e) {
+      console.error('Error deleting project:', e);
+    }
+  };
+
+  const handleToggleAssign = async (projectId: number, soundId: number, isCurrentlyAssigned: boolean) => {
+    // Optimistic assignment map update
+    setProjectAssignments((prev) => {
+      const current = prev[soundId] || [];
+      const updated = isCurrentlyAssigned
+        ? current.filter((id) => id !== projectId)
+        : [...current, projectId];
+      return { ...prev, [soundId]: updated };
+    });
+
+    if (!isCurrentlyAssigned) {
+      // Ensure sound is also reflected in collectionIds
+      setCollectionIds((prev) => new Set(prev).add(soundId));
+    }
+
+    try {
+      if (isCurrentlyAssigned) {
+        await fetch(`/api/projects/${projectId}/items/${soundId}`, { method: 'DELETE' });
+      } else {
+        await fetch(`/api/projects/${projectId}/items/${soundId}`, { method: 'POST' });
+      }
+      await fetchProjects();
+      if (activeProjectId === projectId) {
+        fetchResults(query, category, sortBy, sortOrder, collectionOnly, activeProjectId);
+      }
+    } catch (e) {
+      console.error('Error toggling project assignment:', e);
+      fetchProjects();
+      fetchProjectAssignments();
     }
   };
 
@@ -147,9 +277,11 @@ export default function App() {
       } else {
         await fetch(`/api/collection/${item.id}`, { method: 'POST' });
       }
-      if (collectionOnly) {
-        fetchResults(query, category, sortBy, sortOrder, true);
+      if (collectionOnly || activeProjectId !== null) {
+        fetchResults(query, category, sortBy, sortOrder, collectionOnly, activeProjectId);
       }
+      await fetchProjects();
+      await fetchProjectAssignments();
     } catch (e) {
       console.error('Error toggling collection:', e);
       fetchCollectionIds();
@@ -176,7 +308,7 @@ export default function App() {
       const aiData = await aiRes.json();
       setAiStatus(aiData);
       if (aiData.is_running) {
-        fetchResults(query, category, sortBy, sortOrder, collectionOnly);
+        fetchResults(query, category, sortBy, sortOrder, collectionOnly, activeProjectId);
       }
     } catch (e) {
       console.error(e);
@@ -184,8 +316,8 @@ export default function App() {
   };
 
   useEffect(() => {
-    fetchResults(query, category, sortBy, sortOrder, collectionOnly);
-  }, [query, category, sortBy, sortOrder, collectionOnly]);
+    fetchResults(query, category, sortBy, sortOrder, collectionOnly, activeProjectId);
+  }, [query, category, sortBy, sortOrder, collectionOnly, activeProjectId]);
 
   useEffect(() => {
     fetchAuxData();
@@ -218,7 +350,12 @@ export default function App() {
   // Keyboard navigation & shortcuts
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      const isInput = document.activeElement === searchInputRef.current || editingId !== null;
+      const isInput =
+        document.activeElement === searchInputRef.current ||
+        editingId !== null ||
+        editingProjectId !== null ||
+        assignModalSound !== null ||
+        newProjectInline;
 
       if (!isInput && (e.key === '/' || ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k'))) {
         e.preventDefault();
@@ -289,12 +426,18 @@ export default function App() {
           e.preventDefault();
           toggleCollect(item);
         }
+      } else if (e.key.toLowerCase() === 'p' && !e.ctrlKey && !e.metaKey) {
+        const item = results.find((r) => r.id === selectedId);
+        if (item) {
+          e.preventDefault();
+          setAssignModalSound(item);
+        }
       }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [results, selectedId, editingId]);
+  }, [results, selectedId, editingId, editingProjectId, assignModalSound, newProjectInline]);
 
   const downloadAudio = (item: AudioItem) => {
     const link = document.createElement('a');
@@ -436,6 +579,7 @@ export default function App() {
   };
 
   const currentItem = results.find((r) => r.id === selectedId);
+  const activeProject = projects.find((p) => p.id === activeProjectId);
 
   // Dynamic total library count & rounded representation
   const totalLibraryCount = categories.reduce((acc, c) => acc + c.count, 0) || aiStatus.total || total;
@@ -485,11 +629,12 @@ export default function App() {
           <button
             onClick={() => {
               setCollectionOnly(false);
+              setActiveProjectId(null);
               setCategory('');
               setSidebarOpen(false);
             }}
             className={`w-full flex items-center justify-between px-3 py-2 rounded-lg text-sm font-medium transition cursor-pointer ${
-              !collectionOnly
+              !collectionOnly && activeProjectId === null
                 ? 'bg-indigo-600/20 text-indigo-300 border border-indigo-500/40 shadow-sm'
                 : 'text-slate-300 hover:bg-slate-800 border border-transparent'
             }`}
@@ -501,28 +646,123 @@ export default function App() {
             <span className="text-xs text-slate-400 font-mono">{totalLibraryCount.toLocaleString()}</span>
           </button>
 
-          <button
-            onClick={() => {
-              setCollectionOnly(true);
-              setCategory('');
-              setSidebarOpen(false);
-            }}
-            className={`w-full flex items-center justify-between px-3 py-2 rounded-lg text-sm font-medium transition cursor-pointer ${
-              collectionOnly
-                ? 'bg-amber-950/50 text-amber-300 border border-amber-600/60 shadow-sm'
-                : 'text-slate-300 hover:bg-slate-800 border border-transparent'
-            }`}
-          >
-            <span className="flex items-center gap-2">
-              <Bookmark className={`w-4 h-4 ${collectionOnly ? 'text-amber-400 fill-amber-400' : 'text-amber-400'}`} />
-              My Collection
-            </span>
-            <span className={`text-xs px-2 py-0.5 rounded-full font-mono ${
-              collectionOnly ? 'bg-amber-500/20 text-amber-300 font-semibold' : 'bg-slate-800 text-slate-400'
-            }`}>
-              {collectionIds.size}
-            </span>
-          </button>
+          {/* My Collection Section */}
+          <div className="pt-2 border-t border-slate-800/80">
+            <div className="flex items-center justify-between px-2 pb-1.5 text-xs font-semibold uppercase tracking-wider text-slate-400">
+              <span className="flex items-center gap-1.5">
+                <Bookmark className="w-3.5 h-3.5 text-amber-400" />
+                My Collection
+              </span>
+              <button
+                onClick={() => setNewProjectInline((prev) => !prev)}
+                className="text-slate-400 hover:text-amber-400 p-0.5 rounded transition cursor-pointer"
+                title="Create New Project Collection"
+              >
+                <Plus className="w-3.5 h-3.5" />
+              </button>
+            </div>
+
+            {/* All Saved (Global Root) */}
+            <button
+              onClick={() => {
+                setCollectionOnly(true);
+                setActiveProjectId(null);
+                setCategory('');
+                setSidebarOpen(false);
+              }}
+              className={`w-full flex items-center justify-between px-3 py-1.5 rounded-lg text-xs font-medium transition cursor-pointer ${
+                collectionOnly && activeProjectId === null
+                  ? 'bg-amber-950/50 text-amber-300 border border-amber-600/60 shadow-sm'
+                  : 'text-slate-300 hover:bg-slate-800/80 border border-transparent'
+              }`}
+            >
+              <span className="flex items-center gap-2">
+                <Bookmark className={`w-3.5 h-3.5 ${collectionOnly && activeProjectId === null ? 'text-amber-400 fill-amber-400' : 'text-amber-400'}`} />
+                All Saved
+              </span>
+              <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-mono ${
+                collectionOnly && activeProjectId === null ? 'bg-amber-500/20 text-amber-300 font-semibold' : 'bg-slate-800 text-slate-400'
+              }`}>
+                {collectionIds.size}
+              </span>
+            </button>
+
+            {/* Inline Project Creation */}
+            {newProjectInline && (
+              <form
+                onSubmit={async (e) => {
+                  e.preventDefault();
+                  if (!newProjectName.trim()) return;
+                  await handleCreateProject(newProjectName.trim());
+                  setNewProjectName('');
+                  setNewProjectInline(false);
+                }}
+                className="mt-1.5 p-2 bg-slate-950/80 border border-slate-800 rounded-lg flex flex-col gap-1.5 animate-in fade-in duration-150"
+              >
+                <input
+                  type="text"
+                  placeholder="Project name..."
+                  value={newProjectName}
+                  onChange={(e) => setNewProjectName(e.target.value)}
+                  autoFocus
+                  className="bg-slate-800 border border-slate-700 rounded px-2 py-1 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500"
+                />
+                <div className="flex items-center justify-end gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setNewProjectInline(false);
+                      setNewProjectName('');
+                    }}
+                    className="text-[10px] px-2 py-0.5 rounded text-slate-400 hover:text-white"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={!newProjectName.trim()}
+                    className="text-[10px] bg-amber-500 hover:bg-amber-400 disabled:bg-slate-800 text-slate-950 font-semibold px-2 py-0.5 rounded transition cursor-pointer"
+                  >
+                    Create
+                  </button>
+                </div>
+              </form>
+            )}
+
+            {/* Projects Sub-list */}
+            <div className="space-y-0.5 mt-1 max-h-40 overflow-y-auto pr-0.5">
+              {projects.map((p) => {
+                const isActive = activeProjectId === p.id;
+                return (
+                  <button
+                    key={p.id}
+                    onClick={() => {
+                      setActiveProjectId(p.id);
+                      setCollectionOnly(false);
+                      setCategory('');
+                      setSidebarOpen(false);
+                    }}
+                    className={`w-full flex items-center justify-between px-3 py-1.5 rounded-lg text-xs font-medium transition cursor-pointer group ${
+                      isActive
+                        ? 'bg-amber-950/50 text-amber-300 border border-amber-600/60 shadow-sm'
+                        : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60 border border-transparent'
+                    }`}
+                  >
+                    <div className="flex items-center gap-2 min-w-0">
+                      <div
+                        className="w-2.5 h-2.5 rounded-full shrink-0"
+                        style={{ backgroundColor: p.color || '#f59e0b' }}
+                      />
+                      <span className="truncate">{p.name}</span>
+                    </div>
+                    <span className="text-[10px] text-slate-500 font-mono shrink-0 group-hover:text-slate-400">
+                      {p.sound_count}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
         </div>
 
         <h2 className="text-xs font-semibold uppercase tracking-wider text-slate-400 mb-2 px-2 flex items-center gap-1.5 shrink-0">
@@ -664,13 +904,66 @@ export default function App() {
             </div>
           </div>
 
-          {/* Active Filter Pills (Collection & Category) */}
-          {(collectionOnly || category) && (
+          {/* Active Filter Pills (Project, Collection & Category) */}
+          {(activeProjectId !== null || collectionOnly || category) && (
             <div className="flex items-center gap-2 pt-1 min-w-0 overflow-hidden flex-wrap">
-              {collectionOnly && (
+              {activeProject && (
+                <span className="inline-flex items-center gap-2 bg-amber-950/60 text-amber-200 border border-amber-500/60 text-xs px-3 py-1 rounded-full shrink-0 shadow-sm">
+                  <div
+                    className="w-2.5 h-2.5 rounded-full shrink-0"
+                    style={{ backgroundColor: activeProject.color || '#f59e0b' }}
+                  />
+                  {editingProjectId === activeProject.id ? (
+                    <input
+                      type="text"
+                      value={editProjectName}
+                      autoFocus
+                      onChange={(e) => setEditProjectName(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') handleRenameProject(activeProject.id, editProjectName);
+                        if (e.key === 'Escape') setEditingProjectId(null);
+                      }}
+                      onBlur={() => handleRenameProject(activeProject.id, editProjectName)}
+                      className="bg-slate-900 border border-amber-400 rounded px-1.5 py-0.2 text-xs text-white focus:outline-none"
+                    />
+                  ) : (
+                    <span>Project: <strong>{activeProject.name}</strong> ({total})</span>
+                  )}
+
+                  {/* Rename project button */}
+                  <button
+                    onClick={() => {
+                      setEditingProjectId(activeProject.id);
+                      setEditProjectName(activeProject.name);
+                    }}
+                    className="text-amber-400 hover:text-white transition p-0.5 cursor-pointer"
+                    title="Rename Project"
+                  >
+                    <Edit2 className="w-3 h-3" />
+                  </button>
+
+                  {/* Delete project button */}
+                  <button
+                    onClick={() => handleDeleteProject(activeProject.id, activeProject.name)}
+                    className="text-rose-400 hover:text-rose-300 transition p-0.5 cursor-pointer"
+                    title="Delete Project Collection"
+                  >
+                    <Trash2 className="w-3 h-3" />
+                  </button>
+
+                  <button
+                    onClick={() => setActiveProjectId(null)}
+                    className="hover:text-white ml-0.5 shrink-0 cursor-pointer"
+                    title="Close Project View"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                </span>
+              )}
+              {collectionOnly && activeProjectId === null && (
                 <span className="inline-flex items-center gap-1.5 bg-amber-950/50 text-amber-300 border border-amber-600/60 text-xs px-2.5 py-1 rounded-full shrink-0">
                   <Bookmark className="w-3 h-3 text-amber-400 fill-amber-400 shrink-0" />
-                  <span>Viewing: <strong>My Collection</strong> ({total})</span>
+                  <span>Viewing: <strong>All Saved Collection</strong> ({total})</span>
                   <button onClick={() => setCollectionOnly(false)} className="hover:text-white ml-0.5 shrink-0" title="Switch to All Sounds">
                     <X className="w-3.5 h-3.5" />
                   </button>
@@ -854,6 +1147,26 @@ export default function App() {
                         >
                           <Bookmark className={`w-3.5 h-3.5 ${collectionIds.has(item.id) ? 'fill-amber-400 text-amber-400' : ''}`} />
                         </button>
+
+                        {/* Project Organizer Button */}
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setAssignModalSound(item);
+                          }}
+                          className={`p-1 rounded transition shrink-0 cursor-pointer ${
+                            (projectAssignments[item.id] || []).length > 0
+                              ? 'text-amber-400 hover:text-amber-300'
+                              : 'opacity-30 group-hover:opacity-100 hover:text-amber-400 text-slate-400'
+                          }`}
+                          title={`Organize into Projects [P]${
+                            (projectAssignments[item.id] || []).length > 0
+                              ? ` (in ${(projectAssignments[item.id] || []).length} project${(projectAssignments[item.id] || []).length === 1 ? '' : 's'})`
+                              : ''
+                          }`}
+                        >
+                          <FolderPlus className="w-3.5 h-3.5" />
+                        </button>
                       </div>
 
                       {/* Subtitle: Original filename */}
@@ -917,7 +1230,19 @@ export default function App() {
               {results.length === 0 && (
                 <tr>
                   <td colSpan={6} className="text-center py-16 text-slate-500">
-                    {collectionOnly ? (
+                    {activeProject ? (
+                      <div className="flex flex-col items-center gap-2">
+                        <Folder className="w-8 h-8 text-amber-500/40" />
+                        <span className="text-sm font-medium text-slate-300">Project "{activeProject.name}" is currently empty</span>
+                        <span className="text-xs text-slate-400">Click the project folder icon or press [P] on any sound effect to add it here.</span>
+                        <button
+                          onClick={() => setActiveProjectId(null)}
+                          className="mt-2 text-xs bg-indigo-600/30 hover:bg-indigo-600 text-indigo-300 hover:text-white px-3 py-1.5 rounded-lg border border-indigo-500/40 transition cursor-pointer"
+                        >
+                          Browse All Sounds
+                        </button>
+                      </div>
+                    ) : collectionOnly ? (
                       <div className="flex flex-col items-center gap-2">
                         <Bookmark className="w-8 h-8 text-amber-500/40" />
                         <span className="text-sm font-medium text-slate-300">My Collection is currently empty</span>
@@ -963,6 +1288,19 @@ export default function App() {
           onDownload={downloadAudio}
           isCollected={currentItem ? collectionIds.has(currentItem.id) : false}
           onToggleCollect={toggleCollect}
+          onOpenProjects={(item) => setAssignModalSound(item)}
+          assignedProjectsCount={currentItem ? (projectAssignments[currentItem.id] || []).length : 0}
+        />
+
+        {/* Project Assignment Modal */}
+        <ProjectAssignModal
+          sound={assignModalSound}
+          isOpen={assignModalSound !== null}
+          onClose={() => setAssignModalSound(null)}
+          projects={projects}
+          assignedProjectIds={assignModalSound ? (projectAssignments[assignModalSound.id] || []) : []}
+          onToggleAssign={handleToggleAssign}
+          onCreateProject={handleCreateProject}
         />
 
         {/* Toast Notification for Clipboard */}

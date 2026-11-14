@@ -1,4 +1,6 @@
 import os
+import sqlite3
+from typing import Optional
 from fastapi import APIRouter, Query, HTTPException, Body
 from app.db.database import get_db
 from app.ai.audio_listener import predict_smart_name, classify_audio_sound
@@ -21,6 +23,7 @@ def search_sfx(
     q: str = Query("", description="Search query terms"),
     category: str = Query("", description="UCS Category Filter"),
     collection_only: bool = Query(False, description="Filter results to only sounds in My Collection"),
+    project_id: Optional[int] = Query(None, description="Filter results to a specific project collection"),
     sort_by: str = Query("default", description="Sort field: default, name, duration, category, sample_rate, id, rank"),
     sort_order: str = Query("asc", description="Sort direction: asc or desc"),
     limit: int = Query(50, ge=1, le=200),
@@ -34,7 +37,16 @@ def search_sfx(
         
         if terms:
             fts_query = " ".join([f'"{t}"*' for t in terms.split()])
-            if collection_only:
+            if project_id is not None:
+                base_sql = """
+                    SELECT a.*, bm25(audio_fts) as rank
+                    FROM audio_files a
+                    JOIN audio_fts ON a.id = audio_fts.rowid
+                    JOIN collection_items ci ON a.id = ci.audio_id
+                    WHERE audio_fts MATCH ? AND ci.collection_id = ?
+                """
+                params.extend([fts_query, project_id])
+            elif collection_only:
                 base_sql = """
                     SELECT a.*, bm25(audio_fts) as rank
                     FROM audio_files a
@@ -42,6 +54,7 @@ def search_sfx(
                     JOIN user_collection uc ON a.id = uc.audio_id
                     WHERE audio_fts MATCH ?
                 """
+                params.append(fts_query)
             else:
                 base_sql = """
                     SELECT a.*, bm25(audio_fts) as rank
@@ -49,7 +62,7 @@ def search_sfx(
                     JOIN audio_fts ON a.id = audio_fts.rowid
                     WHERE audio_fts MATCH ?
                 """
-            params.append(fts_query)
+                params.append(fts_query)
             
             if category:
                 base_sql += " AND a.category = ?"
@@ -64,12 +77,17 @@ def search_sfx(
             base_sql += f" {order_clause} LIMIT ? OFFSET ?"
             params.extend([limit, offset])
         else:
-            if collection_only:
+            if project_id is not None:
+                base_sql = "SELECT a.* FROM audio_files a JOIN collection_items ci ON a.id = ci.audio_id"
+                conditions = ["ci.collection_id = ?"]
+                params.append(project_id)
+            elif collection_only:
                 base_sql = "SELECT a.* FROM audio_files a JOIN user_collection uc ON a.id = uc.audio_id"
+                conditions = []
             else:
                 base_sql = "SELECT a.* FROM audio_files a"
+                conditions = []
 
-            conditions = []
             if category:
                 conditions.append("a.category = ?")
                 params.append(category)
@@ -80,7 +98,9 @@ def search_sfx(
             if sort_by in ("default", "name"):
                 order_clause = f"ORDER BY LOWER(COALESCE(NULLIF(a.display_name, ''), a.filename)) {direction}"
             elif sort_by == "id":
-                if collection_only:
+                if project_id is not None:
+                    order_clause = f"ORDER BY ci.created_at {direction}"
+                elif collection_only:
                     order_clause = f"ORDER BY uc.created_at {direction}"
                 else:
                     order_clause = f"ORDER BY a.id {direction}"
@@ -101,26 +121,38 @@ def search_sfx(
             results.append(item)
 
         if terms:
-            if collection_only:
+            if project_id is not None:
+                count_sql = """
+                    SELECT COUNT(*) FROM audio_files a
+                    JOIN audio_fts ON a.id = audio_fts.rowid
+                    JOIN collection_items ci ON a.id = ci.audio_id
+                    WHERE audio_fts MATCH ? AND ci.collection_id = ?
+                """
+                count_params = [fts_query, project_id]
+            elif collection_only:
                 count_sql = """
                     SELECT COUNT(*) FROM audio_files a
                     JOIN audio_fts ON a.id = audio_fts.rowid
                     JOIN user_collection uc ON a.id = uc.audio_id
                     WHERE audio_fts MATCH ?
                 """
+                count_params = [fts_query]
             else:
                 count_sql = """
                     SELECT COUNT(*) FROM audio_files a
                     JOIN audio_fts ON a.id = audio_fts.rowid
                     WHERE audio_fts MATCH ?
                 """
-            count_params = [fts_query]
+                count_params = [fts_query]
+
             if category:
                 count_sql += " AND a.category = ?"
                 count_params.append(category)
             total = conn.execute(count_sql, count_params).fetchone()[0]
         else:
-            if collection_only:
+            if project_id is not None:
+                count_sql = "SELECT COUNT(*) FROM audio_files a JOIN collection_items ci ON a.id = ci.audio_id"
+            elif collection_only:
                 count_sql = "SELECT COUNT(*) FROM audio_files a JOIN user_collection uc ON a.id = uc.audio_id"
             else:
                 count_sql = "SELECT COUNT(*) FROM audio_files a"
@@ -164,7 +196,163 @@ def remove_from_collection(file_id: int):
     try:
         with conn:
             conn.execute("DELETE FROM user_collection WHERE audio_id = ?", [file_id])
+            # Also clean up any project assignments for this sound
+            conn.execute("DELETE FROM collection_items WHERE audio_id = ?", [file_id])
         return {"status": "removed", "id": file_id, "in_collection": False}
+    finally:
+        conn.close()
+
+# --- Project Collections Endpoints ---
+
+@router.get("/projects")
+def get_projects():
+    conn = get_db()
+    try:
+        rows = conn.execute("""
+            SELECT p.id, p.name, p.description, p.color, p.created_at, COUNT(ci.audio_id) as sound_count
+            FROM project_collections p
+            LEFT JOIN collection_items ci ON p.id = ci.collection_id
+            GROUP BY p.id
+            ORDER BY p.name COLLATE NOCASE ASC
+        """).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        conn.close()
+
+@router.post("/projects")
+def create_project(payload: dict = Body(...)):
+    name = payload.get("name", "").strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="Project name cannot be empty")
+    color = payload.get("color", "#f59e0b").strip()
+    description = payload.get("description", "").strip()
+    conn = get_db()
+    try:
+        with conn:
+            cursor = conn.execute(
+                "INSERT INTO project_collections (name, description, color) VALUES (?, ?, ?)",
+                (name, description, color)
+            )
+            project_id = cursor.lastrowid
+        return {
+            "status": "success",
+            "project": {
+                "id": project_id,
+                "name": name,
+                "description": description,
+                "color": color,
+                "sound_count": 0
+            }
+        }
+    except sqlite3.IntegrityError:
+        raise HTTPException(status_code=400, detail="A project with this name already exists")
+    finally:
+        conn.close()
+
+@router.patch("/projects/{project_id}")
+def update_project(project_id: int, payload: dict = Body(...)):
+    conn = get_db()
+    try:
+        name = payload.get("name", "").strip() if "name" in payload else None
+        color = payload.get("color", "").strip() if "color" in payload else None
+        description = payload.get("description", "").strip() if "description" in payload else None
+
+        updates = []
+        params = []
+        if name is not None:
+            if not name:
+                raise HTTPException(status_code=400, detail="Project name cannot be empty")
+            updates.append("name = ?")
+            params.append(name)
+        if color is not None:
+            updates.append("color = ?")
+            params.append(color)
+        if description is not None:
+            updates.append("description = ?")
+            params.append(description)
+
+        if not updates:
+            raise HTTPException(status_code=400, detail="No fields to update")
+
+        params.append(project_id)
+        with conn:
+            cursor = conn.execute(
+                f"UPDATE project_collections SET {', '.join(updates)} WHERE id = ?",
+                params
+            )
+            if cursor.rowcount == 0:
+                raise HTTPException(status_code=404, detail="Project not found")
+
+        row = conn.execute("""
+            SELECT p.id, p.name, p.description, p.color, p.created_at, COUNT(ci.audio_id) as sound_count
+            FROM project_collections p
+            LEFT JOIN collection_items ci ON p.id = ci.collection_id
+            WHERE p.id = ?
+            GROUP BY p.id
+        """, [project_id]).fetchone()
+        return {"status": "success", "project": dict(row)}
+    except sqlite3.IntegrityError:
+        raise HTTPException(status_code=400, detail="A project with this name already exists")
+    finally:
+        conn.close()
+
+@router.delete("/projects/{project_id}")
+def delete_project(project_id: int):
+    conn = get_db()
+    try:
+        with conn:
+            conn.execute("DELETE FROM collection_items WHERE collection_id = ?", [project_id])
+            cursor = conn.execute("DELETE FROM project_collections WHERE id = ?", [project_id])
+            if cursor.rowcount == 0:
+                raise HTTPException(status_code=404, detail="Project not found")
+        return {"status": "success", "deleted_id": project_id}
+    finally:
+        conn.close()
+
+@router.get("/projects/assignments")
+def get_project_assignments():
+    conn = get_db()
+    try:
+        rows = conn.execute("SELECT audio_id, collection_id FROM collection_items").fetchall()
+        assignments = {}
+        for r in rows:
+            aid = r[0]
+            cid = r[1]
+            if aid not in assignments:
+                assignments[aid] = []
+            assignments[aid].append(cid)
+        return assignments
+    finally:
+        conn.close()
+
+@router.post("/projects/{project_id}/items/{audio_id}")
+def add_item_to_project(project_id: int, audio_id: int):
+    conn = get_db()
+    try:
+        with conn:
+            p = conn.execute("SELECT id FROM project_collections WHERE id = ?", [project_id]).fetchone()
+            if not p:
+                raise HTTPException(status_code=404, detail="Project not found")
+            conn.execute(
+                "INSERT OR IGNORE INTO collection_items (collection_id, audio_id) VALUES (?, ?)",
+                (project_id, audio_id)
+            )
+            # Ensure sound is also present in user_collection
+            conn.execute("INSERT OR IGNORE INTO user_collection (audio_id) VALUES (?)", [audio_id])
+        return {"status": "success", "project_id": project_id, "audio_id": audio_id, "assigned": True}
+    finally:
+        conn.close()
+
+@router.delete("/projects/{project_id}/items/{audio_id}")
+def remove_item_from_project(project_id: int, audio_id: int):
+    conn = get_db()
+    try:
+        with conn:
+            conn.execute(
+                "DELETE FROM collection_items WHERE collection_id = ? AND audio_id = ?",
+                (project_id, audio_id)
+            )
+        return {"status": "success", "project_id": project_id, "audio_id": audio_id, "assigned": False}
     finally:
         conn.close()
 
