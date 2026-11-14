@@ -10,3 +10,47 @@ html, body {
   overflow-x: hidden;
   user-select: none;
 }
+
+/* Custom In-App Dark Scrollbar (WebKit / Blink: Chrome, Edge, Safari, Brave, Opera) */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.2); /* slate-400 @ 20% */
+  border-radius: 9999px;
+  transition: background-color 0.2s ease;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(148, 163, 184, 0.45); /* slate-400 @ 45% on hover */
+}
+
+::-webkit-scrollbar-thumb:active {
+  background: rgba(99, 102, 241, 0.6); /* indigo-500 @ 60% when grabbing/dragging */
+}
+
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+/* Firefox standard scrollbar properties */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(148, 163, 184, 0.25) transparent;
+}
+
+/* Hidden scrollbar utility (preserves wheel and touch scroll while hiding the pill) */
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
