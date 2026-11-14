@@ -102,6 +102,16 @@ def init_db():
         conn.execute("CREATE INDEX IF NOT EXISTS idx_audio_category ON audio_files(category);")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_audio_pack ON audio_files(pack);")
 
+        # User personal collection table
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS user_collection (
+                audio_id INTEGER PRIMARY KEY,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY(audio_id) REFERENCES audio_files(id) ON DELETE CASCADE
+            );
+        """)
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_user_collection_created ON user_collection(created_at);")
+
         # Repopulate FTS index if audio_files has rows
         conn.execute("""
             INSERT INTO audio_fts(rowid, filename, display_name, tokens, pack, folder, description, category, sub_category, designer)

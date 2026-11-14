@@ -1,5 +1,5 @@
 import React from 'react';
-import { Play, Pause, FolderOpen, Copy, Check, Wand2, Repeat, Volume2, VolumeX, Download } from 'lucide-react';
+import { Play, Pause, FolderOpen, Copy, Check, Wand2, Repeat, Volume2, VolumeX, Download, Bookmark } from 'lucide-react';
 
 export interface AudioItem {
   id: number;
@@ -34,6 +34,8 @@ interface AudioPlayerProps {
   onCopySMB: (item: AudioItem) => void;
   copiedId: number | null;
   onDownload: (item: AudioItem) => void;
+  isCollected?: boolean;
+  onToggleCollect?: (item: AudioItem) => void;
 }
 
 export const AudioPlayer: React.FC<AudioPlayerProps> = ({
@@ -54,6 +56,8 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({
   onCopySMB,
   copiedId,
   onDownload,
+  isCollected = false,
+  onToggleCollect,
 }) => {
   const formatTime = (seconds: number) => {
     if (!seconds || isNaN(seconds)) return '00:00.0';
@@ -91,7 +95,7 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({
             </div>
             <div className="text-[10px] sm:text-xs text-slate-400 truncate leading-snug mt-0.5 flex items-center gap-2">
               <span className="truncate">
-                {currentItem ? currentItem.filename : 'Shortcuts: [Space] Play • [↑/↓] Navigate • [D] Download • [E] Reveal • [C] Copy • [L] Loop'}
+                {currentItem ? currentItem.filename : 'Shortcuts: [Space] Play • [↑/↓] Navigate • [B] Collect • [D] Download • [E] Reveal • [C] Copy • [L] Loop'}
               </span>
             </div>
           </div>
@@ -144,6 +148,22 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({
           {/* Action Buttons for Active Sound */}
           {currentItem && (
             <div className="flex items-center gap-1.5 sm:gap-2">
+              {/* Collect / Bookmark Button */}
+              {onToggleCollect && (
+                <button
+                  onClick={() => onToggleCollect(currentItem)}
+                  className={`flex items-center gap-1.5 text-xs p-1.5 sm:px-2.5 sm:py-1.5 rounded-lg border transition cursor-pointer ${
+                    isCollected
+                      ? 'bg-amber-950/50 border-amber-500/70 text-amber-300 shadow-sm shadow-amber-500/10'
+                      : 'bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-amber-300 border-slate-700'
+                  }`}
+                  title={isCollected ? 'Remove from My Collection [Hotkey: B]' : 'Save to My Collection [Hotkey: B]'}
+                >
+                  <Bookmark className={`w-3.5 h-3.5 ${isCollected ? 'text-amber-400 fill-amber-400' : ''}`} />
+                  <span className="hidden md:inline">{isCollected ? 'Collected' : 'Collect [B]'}</span>
+                </button>
+              )}
+
               <button
                 onClick={() => onAiListen(currentItem.id)}
                 disabled={listeningId === currentItem.id}
