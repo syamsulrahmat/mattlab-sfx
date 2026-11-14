@@ -45,8 +45,11 @@ def analyze_acoustic_features(audio: np.ndarray, sr: int) -> tuple[str, str, flo
         speed = "Slow"
 
     try:
-        import librosa
-        centroid = librosa.feature.spectral_centroid(y=audio, sr=sr).mean()
+        sample_len = min(len(audio), int(sr * 3.0))
+        clip = audio[:sample_len]
+        magnitude = np.abs(np.fft.rfft(clip))
+        freqs = np.fft.rfftfreq(sample_len, 1.0 / sr)
+        centroid = float(np.sum(freqs * magnitude) / (np.sum(magnitude) + 1e-10))
         if centroid < 1200:
             tone = "Deep"
         elif centroid > 3400:

@@ -79,8 +79,13 @@ def _classify_worker():
                             conn.commit()
                         if batch_count % 20 == 0:
                             gc.collect()
+                    else:
+                        conn.execute("UPDATE audio_files SET is_classified = 1 WHERE id = ?", (file_id,))
                 except Exception as e:
                     print(f"Error classifying {rel_path}: {e}")
+                    conn.execute("UPDATE audio_files SET is_classified = 1 WHERE id = ?", (file_id,))
+            else:
+                conn.execute("UPDATE audio_files SET is_classified = 1 WHERE id = ?", (file_id,))
 
             ai_task_status["processed"] += 1
             if ai_task_status["remaining"] > 0:

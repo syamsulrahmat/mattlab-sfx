@@ -2,7 +2,7 @@ import os
 from fastapi import FastAPI, BackgroundTasks, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from app.db.database import init_db
+from app.db.database import init_db, get_db
 from app.api.routes_search import router as search_router
 from app.api.routes_audio import router as audio_router
 from app.api.routes_auth import router as auth_router
@@ -50,6 +50,17 @@ def stop_ai(current_admin: dict = Depends(require_admin)):
 
 @app.get("/api/ai/status")
 def get_ai_status():
+    if not ai_task_status.get("is_running"):
+        try:
+            conn = get_db()
+            total = conn.execute("SELECT COUNT(*) FROM audio_files").fetchone()[0]
+            classified = conn.execute("SELECT COUNT(*) FROM audio_files WHERE is_classified = 1").fetchone()[0]
+            conn.close()
+            ai_task_status["total"] = total
+            ai_task_status["processed"] = classified
+            ai_task_status["remaining"] = total - classified
+        except Exception:
+            pass
     return ai_task_status
 
 # Serve frontend production build if present

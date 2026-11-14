@@ -613,7 +613,7 @@ export default function App() {
       addToast({
         type: 'clipboard',
         title: 'Copied Explorer Command! [Hotkeys: E]',
-        body: 'Press Win + R and paste (Ctrl+V) to reveal & select file in Explorer.',
+        body: 'Press Win + R and paste (Ctrl+V) to reveal & select file in Explorer.\nTip: If Desktop opens, access \\\\192.168.100.200\\Assets in Explorer once to save login.',
         code: cmd,
       });
 
