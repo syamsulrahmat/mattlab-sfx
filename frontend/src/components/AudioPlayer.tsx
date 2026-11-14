@@ -1,5 +1,5 @@
 import React from 'react';
-import { Play, Pause, FolderOpen, Copy, Check, Wand2, Repeat, Volume2, VolumeX, Download, Bookmark } from 'lucide-react';
+import { Play, Pause, FolderOpen, Copy, Check, Wand2, Repeat, Volume2, VolumeX, Download, Bookmark, FolderPlus } from 'lucide-react';
 
 export interface AudioItem {
   id: number;
@@ -36,6 +36,8 @@ interface AudioPlayerProps {
   onDownload: (item: AudioItem) => void;
   isCollected?: boolean;
   onToggleCollect?: (item: AudioItem) => void;
+  onOpenProjects?: (item: AudioItem) => void;
+  assignedProjectsCount?: number;
 }
 
 export const AudioPlayer: React.FC<AudioPlayerProps> = ({
@@ -58,6 +60,8 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({
   onDownload,
   isCollected = false,
   onToggleCollect,
+  onOpenProjects,
+  assignedProjectsCount = 0,
 }) => {
   const formatTime = (seconds: number) => {
     if (!seconds || isNaN(seconds)) return '00:00.0';
@@ -161,6 +165,24 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({
                 >
                   <Bookmark className={`w-3.5 h-3.5 ${isCollected ? 'text-amber-400 fill-amber-400' : ''}`} />
                   <span className="hidden md:inline">{isCollected ? 'Collected' : 'Collect [B]'}</span>
+                </button>
+              )}
+
+              {/* Projects Organizer Button */}
+              {onOpenProjects && (
+                <button
+                  onClick={() => onOpenProjects(currentItem)}
+                  className={`flex items-center gap-1.5 text-xs p-1.5 sm:px-2.5 sm:py-1.5 rounded-lg border transition cursor-pointer ${
+                    assignedProjectsCount > 0
+                      ? 'bg-amber-950/40 border-amber-500/60 text-amber-200'
+                      : 'bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-amber-300 border-slate-700'
+                  }`}
+                  title="Assign sound to project collections"
+                >
+                  <FolderPlus className="w-3.5 h-3.5 text-amber-400" />
+                  <span className="hidden md:inline">
+                    {assignedProjectsCount > 0 ? `Projects (${assignedProjectsCount})` : 'Projects'}
+                  </span>
                 </button>
               )}
 

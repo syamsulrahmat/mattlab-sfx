@@ -112,6 +112,31 @@ def init_db():
         """)
         conn.execute("CREATE INDEX IF NOT EXISTS idx_user_collection_created ON user_collection(created_at);")
 
+        # Project collections table
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS project_collections (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT UNIQUE NOT NULL,
+                description TEXT DEFAULT '',
+                color TEXT DEFAULT '#f59e0b',
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+        """)
+
+        # Items assigned to project collections
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS collection_items (
+                collection_id INTEGER NOT NULL,
+                audio_id INTEGER NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (collection_id, audio_id),
+                FOREIGN KEY (collection_id) REFERENCES project_collections(id) ON DELETE CASCADE,
+                FOREIGN KEY (audio_id) REFERENCES audio_files(id) ON DELETE CASCADE
+            );
+        """)
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_collection_items_audio ON collection_items(audio_id);")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_collection_items_coll ON collection_items(collection_id);")
+
         # Repopulate FTS index if audio_files has rows
         conn.execute("""
             INSERT INTO audio_fts(rowid, filename, display_name, tokens, pack, folder, description, category, sub_category, designer)
