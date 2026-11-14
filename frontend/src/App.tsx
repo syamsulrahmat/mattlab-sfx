@@ -90,40 +90,59 @@ export default function App() {
   const wavesurfer = useRef<WaveSurfer | null>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
 
-  // Initialize WaveSurfer
-  useEffect(() => {
-    if (waveformRef.current && !wavesurfer.current) {
-      wavesurfer.current = WaveSurfer.create({
-        container: waveformRef.current,
-        waveColor: '#4f46e5',
-        progressColor: '#818cf8',
-        cursorColor: '#c7d2fe',
-        barWidth: 2,
-        barRadius: 2,
-        barGap: 1,
-        height: 44,
-      });
+  // WaveSurfer initialization helper
+  const initWaveSurfer = (container: HTMLElement) => {
+    if (wavesurfer.current) return wavesurfer.current;
 
-      wavesurfer.current.on('play', () => setIsPlaying(true));
-      wavesurfer.current.on('pause', () => setIsPlaying(false));
-      wavesurfer.current.on('finish', () => {
-        if (isLoopingRef.current) {
-          wavesurfer.current?.play();
-        } else {
-          setIsPlaying(false);
-        }
-      });
-      wavesurfer.current.on('timeupdate', (t) => setCurrentTime(t));
-      wavesurfer.current.on('ready', () => {
-        setDuration(wavesurfer.current?.getDuration() || 0);
-      });
+    const ws = WaveSurfer.create({
+      container,
+      waveColor: '#4f46e5',
+      progressColor: '#818cf8',
+      cursorColor: '#c7d2fe',
+      barWidth: 2,
+      barRadius: 2,
+      barGap: 1,
+      height: 44,
+    });
+
+    ws.on('play', () => setIsPlaying(true));
+    ws.on('pause', () => setIsPlaying(false));
+    ws.on('finish', () => {
+      if (isLoopingRef.current) {
+        wavesurfer.current?.play();
+      } else {
+        setIsPlaying(false);
+      }
+    });
+    ws.on('timeupdate', (t) => setCurrentTime(t));
+    ws.on('ready', () => {
+      setDuration(ws.getDuration() || 0);
+    });
+
+    ws.setVolume(volume);
+    wavesurfer.current = ws;
+    return ws;
+  };
+
+  // Initialize WaveSurfer when user is authenticated and waveform container is mounted
+  useEffect(() => {
+    if (!user) {
+      if (wavesurfer.current) {
+        wavesurfer.current.destroy();
+        wavesurfer.current = null;
+      }
+      return;
+    }
+
+    if (waveformRef.current && !wavesurfer.current) {
+      initWaveSurfer(waveformRef.current);
     }
 
     return () => {
       wavesurfer.current?.destroy();
       wavesurfer.current = null;
     };
-  }, []);
+  }, [user]);
 
   // Fetch all bookmarked collection IDs
   const fetchCollectionIds = async () => {
@@ -413,19 +432,23 @@ export default function App() {
   // Load and play selected track
   const selectTrack = async (item: AudioItem) => {
     setSelectedId(item.id);
-    if (!wavesurfer.current) return;
+    let ws = wavesurfer.current;
+    if (!ws && waveformRef.current) {
+      ws = initWaveSurfer(waveformRef.current);
+    }
+    if (!ws) return;
 
     try {
       const peakRes = await fetch(`/api/peaks/${item.id}`);
       const peaks = await peakRes.json();
       const audioUrl = `/api/stream/${item.id}`;
 
-      wavesurfer.current.load(audioUrl, [peaks]);
+      ws.load(audioUrl, [peaks]);
       setCurrentTime(0);
       setDuration(item.duration || 0);
-      wavesurfer.current.once('ready', () => {
-        setDuration(wavesurfer.current?.getDuration() || item.duration || 0);
-        wavesurfer.current?.play();
+      ws.once('ready', () => {
+        setDuration(ws.getDuration() || item.duration || 0);
+        ws.play();
       });
     } catch (e) {
       console.error('Error loading audio:', e);
@@ -477,7 +500,12 @@ export default function App() {
 
       if (e.code === 'Space') {
         e.preventDefault();
-        wavesurfer.current?.playPause();
+        if (wavesurfer.current) {
+          wavesurfer.current.playPause();
+        } else if (results.length > 0) {
+          const itemToPlay = results.find((r) => r.id === selectedId) || results[0];
+          selectTrack(itemToPlay);
+        }
       } else if (e.code === 'ArrowDown') {
         e.preventDefault();
         const currentIndex = results.findIndex((r) => r.id === selectedId);
@@ -1493,7 +1521,13 @@ export default function App() {
         <AudioPlayer
           currentItem={currentItem}
           isPlaying={isPlaying}
-          onPlayPause={() => wavesurfer.current?.playPause()}
+          onPlayPause={() => {
+            if (wavesurfer.current) {
+              wavesurfer.current.playPause();
+            } else if (currentItem) {
+              selectTrack(currentItem);
+            }
+          }}
           waveformRef={waveformRef}
           currentTime={currentTime}
           duration={duration}
