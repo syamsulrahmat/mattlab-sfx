@@ -273,14 +273,14 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({ isOpen
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
             <input
               type="text"
-              placeholder="Username (e.g. soundlead)"
+              placeholder="Username (e.g. alexm)"
               value={newUsername}
               onChange={(e) => setNewUsername(e.target.value)}
               className="bg-slate-800/80 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500"
             />
             <input
               type="text"
-              placeholder="Display Name (optional)"
+              placeholder="Display Name (e.g. Alex Morgan)"
               value={newDisplayName}
               onChange={(e) => setNewDisplayName(e.target.value)}
               className="bg-slate-800/80 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500"

@@ -62,21 +62,16 @@ export const LoginPage: React.FC = () => {
       <div className="w-full max-w-md bg-slate-900/90 border border-slate-800/90 rounded-2xl shadow-2xl p-6 sm:p-8 backdrop-blur-xl z-10 flex flex-col gap-6 animate-in fade-in zoom-in-95 duration-200">
         {/* Header Branding */}
         <div className="flex flex-col items-center text-center gap-2">
-          <div className="p-2 rounded-2xl bg-indigo-950/60 border border-indigo-500/30 shadow-lg shadow-indigo-600/20 mb-1">
+          <div className="p-2.5 rounded-2xl bg-indigo-950/60 border border-indigo-500/30 shadow-lg shadow-indigo-600/20 mb-1">
             <Logo size={42} showText={false} />
           </div>
           <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-white flex items-center gap-2">
             <span>MattLab SFX</span>
-            {isSetupMode && (
-              <span className="text-xs bg-amber-500/20 text-amber-300 border border-amber-500/40 px-2 py-0.5 rounded-full font-mono font-medium">
-                Setup
-              </span>
-            )}
           </h1>
           <p className="text-xs sm:text-sm text-slate-400 max-w-xs leading-relaxed">
             {isSetupMode
-              ? 'No administrator found. Create your master admin account to initialize MattLab SFX.'
-              : 'Sign in to access search, sound previews, project bins & studio downloads.'}
+              ? 'Create your workspace account to initialize the sound library.'
+              : 'Sign in to access search, sound previews, project bins & downloads.'}
           </p>
         </div>
 
@@ -99,7 +94,7 @@ export const LoginPage: React.FC = () => {
                 type="text"
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
-                placeholder="admin, sounddesigner, etc."
+                placeholder="e.g. alexm, sounddesigner"
                 autoFocus
                 autoComplete="username"
                 className="w-full bg-slate-950/80 border border-slate-700/80 rounded-xl pl-9 pr-3 py-2 text-xs sm:text-sm text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition"
@@ -117,7 +112,7 @@ export const LoginPage: React.FC = () => {
                 type="text"
                 value={displayName}
                 onChange={(e) => setDisplayName(e.target.value)}
-                placeholder="e.g. Matt, Audio Lead"
+                placeholder="e.g. Alex Morgan"
                 className="w-full bg-slate-950/80 border border-slate-700/80 rounded-xl px-3 py-2 text-xs sm:text-sm text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition"
               />
             </div>
@@ -132,7 +127,7 @@ export const LoginPage: React.FC = () => {
                 type={showPassword ? 'text' : 'password'}
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                placeholder={isSetupMode ? 'Min 6 characters' : 'Enter your password'}
+                placeholder={isSetupMode ? 'Choose a password (min 6 characters)' : 'Enter your password'}
                 autoComplete={isSetupMode ? 'new-password' : 'current-password'}
                 className="w-full bg-slate-950/80 border border-slate-700/80 rounded-xl pl-9 pr-10 py-2 text-xs sm:text-sm text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition"
               />
@@ -157,7 +152,7 @@ export const LoginPage: React.FC = () => {
                   type={showPassword ? 'text' : 'password'}
                   value={confirmPassword}
                   onChange={(e) => setConfirmPassword(e.target.value)}
-                  placeholder="Re-enter password"
+                  placeholder="Confirm your password"
                   autoComplete="new-password"
                   className="w-full bg-slate-950/80 border border-slate-700/80 rounded-xl pl-9 pr-3 py-2 text-xs sm:text-sm text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition"
                 />
@@ -172,11 +167,11 @@ export const LoginPage: React.FC = () => {
             className="mt-2 w-full bg-indigo-600 hover:bg-indigo-500 disabled:bg-slate-800 disabled:text-slate-600 text-white font-semibold text-xs sm:text-sm py-2.5 px-4 rounded-xl shadow-lg shadow-indigo-600/30 transition flex items-center justify-center gap-2 cursor-pointer"
           >
             {isSubmitting ? (
-              <span>{isSetupMode ? 'Creating Admin...' : 'Signing in...'}</span>
+              <span>{isSetupMode ? 'Creating account...' : 'Signing in...'}</span>
             ) : (
               <>
-                <span>{isSetupMode ? 'Complete Setup & Launch' : 'Sign In'}</span>
-                {isSetupMode ? <ShieldCheck className="w-4 h-4" /> : <ArrowRight className="w-4 h-4" />}
+                <span>{isSetupMode ? 'Create Account' : 'Sign In'}</span>
+                <ArrowRight className="w-4 h-4" />
               </>
             )}
           </button>
@@ -185,7 +180,7 @@ export const LoginPage: React.FC = () => {
         {/* Footer info */}
         <div className="text-center text-[11px] text-slate-500 flex items-center justify-center gap-1.5 border-t border-slate-800/80 pt-4">
           <ShieldCheck className="w-3.5 h-3.5 text-indigo-400" />
-          <span>Secured by MattLab scrypt & HMAC-SHA256</span>
+          <span>Studio-grade audio workspace · Private & secure</span>
         </div>
       </div>
     </div>
