@@ -23,7 +23,10 @@ def _classify_worker():
     try:
         import torch
         torch.set_num_threads(1)
-        torch.set_num_interop_threads(1)
+        try:
+            torch.set_num_interop_threads(1)
+        except Exception:
+            pass
     except Exception:
         pass
     try:
