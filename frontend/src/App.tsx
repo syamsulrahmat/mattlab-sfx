@@ -1,11 +1,14 @@
 import React, { useState, useEffect, useRef } from 'react';
 import WaveSurfer from 'wavesurfer.js';
-import { Play, Pause, Search, Volume2, Copy, Check, RefreshCw, Tag, X, Edit2, Wand2, Brain, Square, FolderOpen, Menu, ArrowUpDown, ArrowUp, ArrowDown, Download, Bookmark, FolderPlus, Trash2, Plus, Folder, ChevronDown, ChevronRight, AlertCircle, CheckCircle2, Info } from 'lucide-react';
+import { Play, Pause, Search, Volume2, Copy, Check, RefreshCw, Tag, X, Edit2, Wand2, Brain, Square, FolderOpen, Menu, ArrowUpDown, ArrowUp, ArrowDown, Download, Bookmark, FolderPlus, Trash2, Plus, Folder, ChevronDown, ChevronRight, AlertCircle, CheckCircle2, Info, Users, LogOut } from 'lucide-react';
 import { Logo } from './components/Logo';
 import { AudioPlayer } from './components/AudioPlayer';
 import { ProjectAssignModal, ProjectCollection } from './components/ProjectAssignModal';
 import { ConfirmModal } from './components/ConfirmModal';
 import { ContextMenu } from './components/ContextMenu';
+import { useAuth } from './context/AuthContext';
+import { LoginPage } from './components/LoginPage';
+import { UserManagementModal } from './components/UserManagementModal';
 
 interface AudioItem {
   id: number;
