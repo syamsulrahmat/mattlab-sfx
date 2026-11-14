@@ -1,9 +1,11 @@
 import React, { useState, useEffect, useRef } from 'react';
 import WaveSurfer from 'wavesurfer.js';
-import { Play, Pause, Search, Volume2, Copy, Check, RefreshCw, Tag, X, Edit2, Wand2, Brain, Square, FolderOpen, Menu, ArrowUpDown, ArrowUp, ArrowDown, Download, Bookmark, FolderPlus, Trash2, Plus, Folder, ChevronDown, ChevronRight } from 'lucide-react';
+import { Play, Pause, Search, Volume2, Copy, Check, RefreshCw, Tag, X, Edit2, Wand2, Brain, Square, FolderOpen, Menu, ArrowUpDown, ArrowUp, ArrowDown, Download, Bookmark, FolderPlus, Trash2, Plus, Folder, ChevronDown, ChevronRight, AlertCircle, CheckCircle2, Info } from 'lucide-react';
 import { Logo } from './components/Logo';
 import { AudioPlayer } from './components/AudioPlayer';
 import { ProjectAssignModal, ProjectCollection } from './components/ProjectAssignModal';
+import { ConfirmModal } from './components/ConfirmModal';
+import { ContextMenu } from './components/ContextMenu';
 
 interface AudioItem {
   id: number;
@@ -35,7 +37,21 @@ export default function App() {
   const [editingId, setEditingId] = useState<number | null>(null);
   const [editValue, setEditValue] = useState('');
   const [listeningId, setListeningId] = useState<number | null>(null);
-  const [toastMessage, setToastMessage] = useState<{ title: string; body: string; code: string } | null>(null);
+  const [toasts, setToasts] = useState<Array<{ id: string; type: 'success' | 'error' | 'info' | 'clipboard'; title: string; body?: string; code?: string }>>([]);
+  const [confirmDialog, setConfirmDialog] = useState<{
+    isOpen: boolean;
+    title: string;
+    message: string;
+    confirmText?: string;
+    cancelText?: string;
+    severity?: 'danger' | 'warning' | 'info';
+    onConfirm: () => void;
+  } | null>(null);
+  const [contextMenu, setContextMenu] = useState<{
+    x: number;
+    y: number;
+    item: AudioItem;
+  } | null>(null);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
   const [isLooping, setIsLooping] = useState(false);
@@ -169,6 +185,19 @@ export default function App() {
     }
   };
 
+  // In-app Toast helpers
+  const addToast = (toast: { type: 'success' | 'error' | 'info' | 'clipboard'; title: string; body?: string; code?: string }) => {
+    const id = Math.random().toString(36).substring(2, 9);
+    setToasts((prev) => [...prev, { ...toast, id }]);
+    setTimeout(() => {
+      removeToast(id);
+    }, toast.type === 'clipboard' ? 5500 : 4000);
+  };
+
+  const removeToast = (id: string) => {
+    setToasts((prev) => prev.filter((t) => t.id !== id));
+  };
+
   const handleCreateProject = async (name: string, color: string = '#f59e0b'): Promise<number | null> => {
     try {
       const res = await fetch('/api/projects', {
@@ -182,9 +211,18 @@ export default function App() {
       }
       const data = await res.json();
       await fetchProjects();
+      addToast({
+        type: 'success',
+        title: 'Project Created',
+        body: `Created collection "${name}".`,
+      });
       return data.project.id;
     } catch (e: any) {
-      alert(e.message || 'Error creating project');
+      addToast({
+        type: 'error',
+        title: 'Error Creating Project',
+        body: e.message || 'Could not create project.',
+      });
       return null;
     }
   };
@@ -201,31 +239,61 @@ export default function App() {
       if (res.ok) {
         await fetchProjects();
         setEditingProjectId(null);
+        addToast({
+          type: 'success',
+          title: 'Project Renamed',
+          body: `Project renamed to "${trimmed}".`,
+        });
       } else {
         const err = await res.json();
-        alert(err.detail || 'Error renaming project');
+        addToast({
+          type: 'error',
+          title: 'Error Renaming Project',
+          body: err.detail || 'Failed to rename project.',
+        });
       }
-    } catch (e) {
-      console.error('Error renaming project:', e);
+    } catch (e: any) {
+      addToast({
+        type: 'error',
+        title: 'Error Renaming Project',
+        body: e.message || 'Failed to rename project.',
+      });
     }
   };
 
-  const handleDeleteProject = async (projectId: number, projectName: string) => {
-    if (!window.confirm(`Are you sure you want to delete project "${projectName}"?\n\nSounds will remain safe in your library and My Collection.`)) {
-      return;
-    }
-    try {
-      const res = await fetch(`/api/projects/${projectId}`, { method: 'DELETE' });
-      if (res.ok) {
-        if (activeProjectId === projectId) {
-          setActiveProjectId(null);
+  const handleDeleteProject = (projectId: number, projectName: string) => {
+    setConfirmDialog({
+      isOpen: true,
+      title: 'Delete Project Collection?',
+      message: `Are you sure you want to delete project "${projectName}"?\n\nSounds will remain safe in your library and My Collection.`,
+      confirmText: 'Delete Project',
+      cancelText: 'Cancel',
+      severity: 'danger',
+      onConfirm: async () => {
+        setConfirmDialog(null);
+        try {
+          const res = await fetch(`/api/projects/${projectId}`, { method: 'DELETE' });
+          if (res.ok) {
+            if (activeProjectId === projectId) {
+              setActiveProjectId(null);
+            }
+            await fetchProjects();
+            await fetchProjectAssignments();
+            addToast({
+              type: 'success',
+              title: 'Project Deleted',
+              body: `Project "${projectName}" was removed.`,
+            });
+          }
+        } catch (e: any) {
+          addToast({
+            type: 'error',
+            title: 'Error Deleting Project',
+            body: e.message || 'Failed to delete project.',
+          });
         }
-        await fetchProjects();
-        await fetchProjectAssignments();
-      }
-    } catch (e) {
-      console.error('Error deleting project:', e);
-    }
+      },
+    });
   };
 
   const handleToggleAssign = async (projectId: number, soundId: number, isCurrentlyAssigned: boolean) => {
@@ -272,6 +340,12 @@ export default function App() {
         next.add(item.id);
       }
       return next;
+    });
+
+    addToast({
+      type: inCollection ? 'info' : 'success',
+      title: inCollection ? 'Removed from Collection' : 'Saved to My Collection',
+      body: item.display_name || item.filename,
     });
 
     try {
@@ -353,11 +427,19 @@ export default function App() {
   // Keyboard navigation & shortcuts
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      if (contextMenu !== null && e.key === 'Escape') {
+        e.preventDefault();
+        setContextMenu(null);
+        return;
+      }
+
       const isInput =
         document.activeElement === searchInputRef.current ||
         editingId !== null ||
         editingProjectId !== null ||
         assignModalSound !== null ||
+        confirmDialog !== null ||
+        contextMenu !== null ||
         newProjectInline;
 
       if (!isInput && (e.key === '/' || ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k'))) {
@@ -440,7 +522,7 @@ export default function App() {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [results, selectedId, editingId, editingProjectId, assignModalSound, newProjectInline]);
+  }, [results, selectedId, editingId, editingProjectId, assignModalSound, confirmDialog, contextMenu, newProjectInline]);
 
   const downloadAudio = (item: AudioItem) => {
     const link = document.createElement('a');
@@ -449,6 +531,11 @@ export default function App() {
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
+    addToast({
+      type: 'info',
+      title: 'Downloading Sound',
+      body: item.display_name || item.filename,
+    });
   };
 
   const copyToClipboard = async (text: string): Promise<boolean> => {
@@ -487,10 +574,11 @@ export default function App() {
     const success = await copyToClipboard(cmd);
     if (success) {
       setRevealedId(item.id);
-      setToastMessage({
-        title: "Copied Explorer Command! [Hotkeys: E]",
-        body: "Press Win + R and paste (Ctrl+V) to reveal & select file in Explorer.",
-        code: cmd
+      addToast({
+        type: 'clipboard',
+        title: 'Copied Explorer Command! [Hotkeys: E]',
+        body: 'Press Win + R and paste (Ctrl+V) to reveal & select file in Explorer.',
+        code: cmd,
       });
 
       // Optional 1-click trigger if user installed the mattlab-reveal protocol
@@ -506,7 +594,6 @@ export default function App() {
       }
 
       setTimeout(() => setRevealedId(null), 2000);
-      setTimeout(() => setToastMessage(null), 6000);
     }
   };
 
@@ -514,13 +601,13 @@ export default function App() {
     const success = await copyToClipboard(item.smb_path);
     if (success) {
       setCopiedId(item.id);
-      setToastMessage({
-        title: "Copied Raw SMB Path!",
-        body: "Windows network path ready for your DAW, NLE, or file picker.",
-        code: item.smb_path
+      addToast({
+        type: 'clipboard',
+        title: 'Copied Raw SMB Path! [Hotkeys: C]',
+        body: 'Windows network path ready for your DAW, NLE, or file picker.',
+        code: item.smb_path,
       });
       setTimeout(() => setCopiedId(null), 2000);
-      setTimeout(() => setToastMessage(null), 4500);
     }
   };
 
@@ -538,6 +625,11 @@ export default function App() {
       setResults((prev) =>
         prev.map((item) => (item.id === id ? { ...item, display_name: editValue.trim() } : item))
       );
+      addToast({
+        type: 'success',
+        title: 'Renamed Sound in App',
+        body: editValue.trim(),
+      });
     } catch (e) {
       console.error(e);
     } finally {
@@ -554,6 +646,11 @@ export default function App() {
         setResults((prev) =>
           prev.map((item) => (item.id === id ? { ...item, display_name: data.display_name } : item))
         );
+        addToast({
+          type: 'success',
+          title: 'AI Smart Name Generated',
+          body: data.display_name,
+        });
       }
     } catch (e) {
       console.error(e);
@@ -1095,6 +1192,15 @@ export default function App() {
                   <tr
                     key={item.id}
                     onClick={() => selectTrack(item)}
+                    onContextMenu={(e) => {
+                      e.preventDefault();
+                      setSelectedId(item.id);
+                      setContextMenu({
+                        x: e.clientX,
+                        y: e.clientY,
+                        item,
+                      });
+                    }}
                     className={`group cursor-pointer transition ${
                       isSelected ? 'bg-indigo-950/40 border-l-2 border-indigo-500' : 'hover:bg-slate-900/50'
                     }`}
@@ -1341,35 +1447,94 @@ export default function App() {
           onCreateProject={handleCreateProject}
         />
 
-        {/* Toast Notification for Clipboard */}
-        {toastMessage && (
-          <div className="fixed bottom-28 inset-x-3 sm:inset-x-auto sm:right-6 z-50 bg-slate-900/95 border border-indigo-500/60 shadow-2xl rounded-xl p-3 sm:p-4 flex items-start gap-3 text-slate-100 text-xs sm:max-w-lg backdrop-blur animate-in fade-in slide-in-from-bottom-2 duration-200 overflow-hidden">
-            <Check className="w-5 h-5 text-emerald-400 shrink-0 mt-0.5" />
-            <div className="flex-1 min-w-0 overflow-hidden">
-              <div className="font-semibold text-white mb-0.5 truncate">{toastMessage.title}</div>
-              <div className="text-slate-300 text-[11px] mb-1.5">{toastMessage.body}</div>
-              <div className="bg-slate-950 px-2.5 py-1.5 rounded border border-slate-800 font-mono text-[11px] text-indigo-300 truncate select-all mb-1.5">
-                {toastMessage.code}
-              </div>
-              <div className="text-[10px] text-slate-400 flex items-center gap-1.5 truncate">
-                <span>Want 1-click reveal?</span>
-                <a
-                  href="/mattlab-reveal-setup.reg"
-                  download
-                  className="text-indigo-400 hover:text-indigo-300 underline font-medium shrink-0"
-                >
-                  Download .reg setup
-                </a>
-              </div>
-            </div>
-            <button
-              onClick={() => setToastMessage(null)}
-              className="text-slate-500 hover:text-slate-300 ml-1 p-0.5 shrink-0"
-            >
-              <X className="w-4 h-4" />
-            </button>
-          </div>
+        {/* Confirmation Modal */}
+        {confirmDialog && (
+          <ConfirmModal
+            isOpen={confirmDialog.isOpen}
+            title={confirmDialog.title}
+            message={confirmDialog.message}
+            confirmText={confirmDialog.confirmText}
+            cancelText={confirmDialog.cancelText}
+            severity={confirmDialog.severity}
+            onConfirm={confirmDialog.onConfirm}
+            onCancel={() => setConfirmDialog(null)}
+          />
         )}
+
+        {/* Right-Click Context Menu */}
+        {contextMenu && (
+          <ContextMenu
+            x={contextMenu.x}
+            y={contextMenu.y}
+            item={contextMenu.item}
+            isSelected={selectedId === contextMenu.item.id}
+            isPlaying={isPlaying && selectedId === contextMenu.item.id}
+            isCollected={collectionIds.has(contextMenu.item.id)}
+            assignedProjectsCount={(projectAssignments[contextMenu.item.id] || []).length}
+            onClose={() => setContextMenu(null)}
+            onPlayPause={(item) => {
+              if (selectedId === item.id) {
+                wavesurfer.current?.playPause();
+              } else {
+                selectTrack(item);
+              }
+            }}
+            onToggleCollect={toggleCollect}
+            onOpenProjects={(item) => setAssignModalSound(item)}
+            onDownload={downloadAudio}
+            onCopyExplorer={copyExplorer}
+            onCopySMB={copySMB}
+            onAiListen={(item) => aiListen(item.id)}
+            onRename={(item) => {
+              setEditingId(item.id);
+              setEditValue(item.display_name || item.filename);
+            }}
+          />
+        )}
+
+        {/* Unified In-App Toast Notifications */}
+        <div className="fixed bottom-28 inset-x-3 sm:inset-x-auto sm:right-6 z-50 flex flex-col gap-2 max-w-sm w-full pointer-events-none">
+          {toasts.map((t) => (
+            <div
+              key={t.id}
+              className="pointer-events-auto bg-slate-900/95 border border-slate-700/80 shadow-2xl rounded-xl p-3 sm:p-3.5 flex items-start gap-3 text-slate-100 text-xs backdrop-blur-md animate-in fade-in slide-in-from-bottom-2 duration-150 overflow-hidden"
+            >
+              {t.type === 'success' && <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />}
+              {t.type === 'error' && <AlertCircle className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />}
+              {t.type === 'info' && <Info className="w-4 h-4 text-indigo-400 shrink-0 mt-0.5" />}
+              {t.type === 'clipboard' && <Check className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />}
+
+              <div className="flex-1 min-w-0 overflow-hidden">
+                <div className="font-semibold text-white truncate">{t.title}</div>
+                {t.body && <div className="text-slate-300 text-[11px] mt-0.5 whitespace-pre-line">{t.body}</div>}
+                {t.code && (
+                  <div className="bg-slate-950 px-2.5 py-1 rounded border border-slate-800 font-mono text-[10px] text-indigo-300 truncate select-all my-1.5">
+                    {t.code}
+                  </div>
+                )}
+                {t.type === 'clipboard' && (
+                  <div className="text-[10px] text-slate-400 flex items-center gap-1.5 mt-0.5">
+                    <span>1-click reveal setup:</span>
+                    <a
+                      href="/mattlab-reveal-setup.reg"
+                      download
+                      className="text-indigo-400 hover:text-indigo-300 underline font-medium"
+                    >
+                      .reg file
+                    </a>
+                  </div>
+                )}
+              </div>
+
+              <button
+                onClick={() => removeToast(t.id)}
+                className="text-slate-500 hover:text-slate-300 p-0.5 shrink-0"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          ))}
+        </div>
       </div>
     </div>
   );
