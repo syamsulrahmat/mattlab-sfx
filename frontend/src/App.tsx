@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import WaveSurfer from 'wavesurfer.js';
-import { Play, Pause, Search, Volume2, Copy, Check, RefreshCw, Tag, X, Edit2, Wand2, Brain, Square, FolderOpen, Menu, ArrowUpDown, ArrowUp, ArrowDown, Download, Bookmark, FolderPlus, Trash2, Plus, Folder } from 'lucide-react';
+import { Play, Pause, Search, Volume2, Copy, Check, RefreshCw, Tag, X, Edit2, Wand2, Brain, Square, FolderOpen, Menu, ArrowUpDown, ArrowUp, ArrowDown, Download, Bookmark, FolderPlus, Trash2, Plus, Folder, ChevronDown, ChevronRight } from 'lucide-react';
 import { Logo } from './components/Logo';
 import { AudioPlayer } from './components/AudioPlayer';
 import { ProjectAssignModal, ProjectCollection } from './components/ProjectAssignModal';
@@ -44,6 +44,9 @@ export default function App() {
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
   const [collectionIds, setCollectionIds] = useState<Set<number>>(new Set());
   const [collectionOnly, setCollectionOnly] = useState<boolean>(false);
+  const [collectionCollapsed, setCollectionCollapsed] = useState(() => {
+    return localStorage.getItem('sfx_collection_collapsed') === 'true';
+  });
   const [projects, setProjects] = useState<ProjectCollection[]>([]);
   const [activeProjectId, setActiveProjectId] = useState<number | null>(null);
   const [projectAssignments, setProjectAssignments] = useState<Record<number, number[]>>({});
@@ -648,120 +651,155 @@ export default function App() {
 
           {/* My Collection Section */}
           <div className="pt-2 border-t border-slate-800/80">
-            <div className="flex items-center justify-between px-2 pb-1.5 text-xs font-semibold uppercase tracking-wider text-slate-400">
-              <span className="flex items-center gap-1.5">
-                <Bookmark className="w-3.5 h-3.5 text-amber-400" />
-                My Collection
-              </span>
-              <button
-                onClick={() => setNewProjectInline((prev) => !prev)}
-                className="text-slate-400 hover:text-amber-400 p-0.5 rounded transition cursor-pointer"
-                title="Create New Project Collection"
-              >
-                <Plus className="w-3.5 h-3.5" />
-              </button>
-            </div>
-
-            {/* All Saved (Global Root) */}
-            <button
+            <div
               onClick={() => {
-                setCollectionOnly(true);
-                setActiveProjectId(null);
-                setCategory('');
-                setSidebarOpen(false);
+                setCollectionCollapsed((prev) => {
+                  const next = !prev;
+                  localStorage.setItem('sfx_collection_collapsed', String(next));
+                  return next;
+                });
               }}
-              className={`w-full flex items-center justify-between px-3 py-1.5 rounded-lg text-xs font-medium transition cursor-pointer ${
-                collectionOnly && activeProjectId === null
-                  ? 'bg-amber-950/50 text-amber-300 border border-amber-600/60 shadow-sm'
-                  : 'text-slate-300 hover:bg-slate-800/80 border border-transparent'
-              }`}
+              className="flex items-center justify-between px-2 py-1.5 text-xs font-semibold uppercase tracking-wider text-slate-400 hover:text-slate-200 transition cursor-pointer select-none rounded group"
+              title={collectionCollapsed ? 'Expand My Collection' : 'Collapse My Collection'}
             >
-              <span className="flex items-center gap-2">
-                <Bookmark className={`w-3.5 h-3.5 ${collectionOnly && activeProjectId === null ? 'text-amber-400 fill-amber-400' : 'text-amber-400'}`} />
-                All Saved
+              <span className="flex items-center gap-1.5 min-w-0">
+                {collectionCollapsed ? (
+                  <ChevronRight className="w-3.5 h-3.5 text-slate-500 group-hover:text-amber-400 transition shrink-0" />
+                ) : (
+                  <ChevronDown className="w-3.5 h-3.5 text-slate-500 group-hover:text-amber-400 transition shrink-0" />
+                )}
+                <Bookmark className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                <span className="truncate">My Collection</span>
               </span>
-              <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-mono ${
-                collectionOnly && activeProjectId === null ? 'bg-amber-500/20 text-amber-300 font-semibold' : 'bg-slate-800 text-slate-400'
-              }`}>
-                {collectionIds.size}
-              </span>
-            </button>
-
-            {/* Inline Project Creation */}
-            {newProjectInline && (
-              <form
-                onSubmit={async (e) => {
-                  e.preventDefault();
-                  if (!newProjectName.trim()) return;
-                  await handleCreateProject(newProjectName.trim());
-                  setNewProjectName('');
-                  setNewProjectInline(false);
-                }}
-                className="mt-1.5 p-2 bg-slate-950/80 border border-slate-800 rounded-lg flex flex-col gap-1.5 animate-in fade-in duration-150"
-              >
-                <input
-                  type="text"
-                  placeholder="Project name..."
-                  value={newProjectName}
-                  onChange={(e) => setNewProjectName(e.target.value)}
-                  autoFocus
-                  className="bg-slate-800 border border-slate-700 rounded px-2 py-1 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500"
-                />
-                <div className="flex items-center justify-end gap-1.5">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setNewProjectInline(false);
-                      setNewProjectName('');
-                    }}
-                    className="text-[10px] px-2 py-0.5 rounded text-slate-400 hover:text-white"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="submit"
-                    disabled={!newProjectName.trim()}
-                    className="text-[10px] bg-amber-500 hover:bg-amber-400 disabled:bg-slate-800 text-slate-950 font-semibold px-2 py-0.5 rounded transition cursor-pointer"
-                  >
-                    Create
-                  </button>
-                </div>
-              </form>
-            )}
-
-            {/* Projects Sub-list */}
-            <div className="space-y-0.5 mt-1 max-h-40 overflow-y-auto pr-0.5">
-              {projects.map((p) => {
-                const isActive = activeProjectId === p.id;
-                return (
-                  <button
-                    key={p.id}
-                    onClick={() => {
-                      setActiveProjectId(p.id);
-                      setCollectionOnly(false);
-                      setCategory('');
-                      setSidebarOpen(false);
-                    }}
-                    className={`w-full flex items-center justify-between px-3 py-1.5 rounded-lg text-xs font-medium transition cursor-pointer group ${
-                      isActive
-                        ? 'bg-amber-950/50 text-amber-300 border border-amber-600/60 shadow-sm'
-                        : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60 border border-transparent'
-                    }`}
-                  >
-                    <div className="flex items-center gap-2 min-w-0">
-                      <div
-                        className="w-2.5 h-2.5 rounded-full shrink-0"
-                        style={{ backgroundColor: p.color || '#f59e0b' }}
-                      />
-                      <span className="truncate">{p.name}</span>
-                    </div>
-                    <span className="text-[10px] text-slate-500 font-mono shrink-0 group-hover:text-slate-400">
-                      {p.sound_count}
-                    </span>
-                  </button>
-                );
-              })}
+              <div className="flex items-center gap-1.5 shrink-0" onClick={(e) => e.stopPropagation()}>
+                <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-mono ${
+                  collectionOnly || activeProjectId !== null
+                    ? 'bg-amber-500/20 text-amber-300 font-semibold'
+                    : 'bg-slate-800 text-slate-400'
+                }`}>
+                  {collectionIds.size}
+                </span>
+                <button
+                  onClick={() => {
+                    if (collectionCollapsed) {
+                      setCollectionCollapsed(false);
+                      localStorage.setItem('sfx_collection_collapsed', 'false');
+                    }
+                    setNewProjectInline((prev) => !prev);
+                  }}
+                  className="text-slate-400 hover:text-amber-400 p-0.5 rounded transition cursor-pointer"
+                  title="Create New Project Collection"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                </button>
+              </div>
             </div>
+
+            {/* Collapsible Content */}
+            {!collectionCollapsed && (
+              <div className="space-y-1 mt-1 animate-in fade-in duration-150">
+                {/* All Saved (Global Root) */}
+                <button
+                  onClick={() => {
+                    setCollectionOnly(true);
+                    setActiveProjectId(null);
+                    setCategory('');
+                    setSidebarOpen(false);
+                  }}
+                  className={`w-full flex items-center justify-between px-3 py-1.5 rounded-lg text-xs font-medium transition cursor-pointer ${
+                    collectionOnly && activeProjectId === null
+                      ? 'bg-amber-950/50 text-amber-300 border border-amber-600/60 shadow-sm'
+                      : 'text-slate-300 hover:bg-slate-800/80 border border-transparent'
+                  }`}
+                >
+                  <span className="flex items-center gap-2">
+                    <Bookmark className={`w-3.5 h-3.5 ${collectionOnly && activeProjectId === null ? 'text-amber-400 fill-amber-400' : 'text-amber-400'}`} />
+                    All Saved
+                  </span>
+                  <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-mono ${
+                    collectionOnly && activeProjectId === null ? 'bg-amber-500/20 text-amber-300 font-semibold' : 'bg-slate-800 text-slate-400'
+                  }`}>
+                    {collectionIds.size}
+                  </span>
+                </button>
+
+                {/* Inline Project Creation */}
+                {newProjectInline && (
+                  <form
+                    onSubmit={async (e) => {
+                      e.preventDefault();
+                      if (!newProjectName.trim()) return;
+                      await handleCreateProject(newProjectName.trim());
+                      setNewProjectName('');
+                      setNewProjectInline(false);
+                    }}
+                    className="mt-1.5 p-2 bg-slate-950/80 border border-slate-800 rounded-lg flex flex-col gap-1.5 animate-in fade-in duration-150"
+                  >
+                    <input
+                      type="text"
+                      placeholder="Project name..."
+                      value={newProjectName}
+                      onChange={(e) => setNewProjectName(e.target.value)}
+                      autoFocus
+                      className="bg-slate-800 border border-slate-700 rounded px-2 py-1 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500"
+                    />
+                    <div className="flex items-center justify-end gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setNewProjectInline(false);
+                          setNewProjectName('');
+                        }}
+                        className="text-[10px] px-2 py-0.5 rounded text-slate-400 hover:text-white"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        type="submit"
+                        disabled={!newProjectName.trim()}
+                        className="text-[10px] bg-amber-500 hover:bg-amber-400 disabled:bg-slate-800 text-slate-950 font-semibold px-2 py-0.5 rounded transition cursor-pointer"
+                      >
+                        Create
+                      </button>
+                    </div>
+                  </form>
+                )}
+
+                {/* Projects Sub-list */}
+                <div className="space-y-0.5 max-h-40 overflow-y-auto pr-0.5">
+                  {projects.map((p) => {
+                    const isActive = activeProjectId === p.id;
+                    return (
+                      <button
+                        key={p.id}
+                        onClick={() => {
+                          setActiveProjectId(p.id);
+                          setCollectionOnly(false);
+                          setCategory('');
+                          setSidebarOpen(false);
+                        }}
+                        className={`w-full flex items-center justify-between px-3 py-1.5 rounded-lg text-xs font-medium transition cursor-pointer group ${
+                          isActive
+                            ? 'bg-amber-950/50 text-amber-300 border border-amber-600/60 shadow-sm'
+                            : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60 border border-transparent'
+                        }`}
+                      >
+                        <div className="flex items-center gap-2 min-w-0">
+                          <div
+                            className="w-2.5 h-2.5 rounded-full shrink-0"
+                            style={{ backgroundColor: p.color || '#f59e0b' }}
+                          />
+                          <span className="truncate">{p.name}</span>
+                        </div>
+                        <span className="text-[10px] text-slate-500 font-mono shrink-0 group-hover:text-slate-400">
+                          {p.sound_count}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
           </div>
         </div>
 
