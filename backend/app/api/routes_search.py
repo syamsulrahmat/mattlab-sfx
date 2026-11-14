@@ -20,6 +20,7 @@ SORT_COLUMNS = {
 def search_sfx(
     q: str = Query("", description="Search query terms"),
     category: str = Query("", description="UCS Category Filter"),
+    collection_only: bool = Query(False, description="Filter results to only sounds in My Collection"),
     sort_by: str = Query("default", description="Sort field: default, name, duration, category, sample_rate, id, rank"),
     sort_order: str = Query("asc", description="Sort direction: asc or desc"),
     limit: int = Query(50, ge=1, le=200),
@@ -33,12 +34,21 @@ def search_sfx(
         
         if terms:
             fts_query = " ".join([f'"{t}"*' for t in terms.split()])
-            base_sql = """
-                SELECT a.*, bm25(audio_fts) as rank
-                FROM audio_files a
-                JOIN audio_fts ON a.id = audio_fts.rowid
-                WHERE audio_fts MATCH ?
-            """
+            if collection_only:
+                base_sql = """
+                    SELECT a.*, bm25(audio_fts) as rank
+                    FROM audio_files a
+                    JOIN audio_fts ON a.id = audio_fts.rowid
+                    JOIN user_collection uc ON a.id = uc.audio_id
+                    WHERE audio_fts MATCH ?
+                """
+            else:
+                base_sql = """
+                    SELECT a.*, bm25(audio_fts) as rank
+                    FROM audio_files a
+                    JOIN audio_fts ON a.id = audio_fts.rowid
+                    WHERE audio_fts MATCH ?
+                """
             params.append(fts_query)
             
             if category:
@@ -54,21 +64,28 @@ def search_sfx(
             base_sql += f" {order_clause} LIMIT ? OFFSET ?"
             params.extend([limit, offset])
         else:
-            base_sql = "SELECT * FROM audio_files"
+            if collection_only:
+                base_sql = "SELECT a.* FROM audio_files a JOIN user_collection uc ON a.id = uc.audio_id"
+            else:
+                base_sql = "SELECT a.* FROM audio_files a"
+
             conditions = []
             if category:
-                conditions.append("category = ?")
+                conditions.append("a.category = ?")
                 params.append(category)
 
             if conditions:
                 base_sql += " WHERE " + " AND ".join(conditions)
 
             if sort_by in ("default", "name"):
-                order_clause = f"ORDER BY LOWER(COALESCE(NULLIF(display_name, ''), filename)) {direction}"
+                order_clause = f"ORDER BY LOWER(COALESCE(NULLIF(a.display_name, ''), a.filename)) {direction}"
             elif sort_by == "id":
-                order_clause = f"ORDER BY id {direction}"
+                if collection_only:
+                    order_clause = f"ORDER BY uc.created_at {direction}"
+                else:
+                    order_clause = f"ORDER BY a.id {direction}"
             else:
-                col = SORT_COLUMNS.get(sort_by, "id").replace("a.", "")
+                col = SORT_COLUMNS.get(sort_by, "a.id")
                 order_clause = f"ORDER BY {col} {direction}"
 
             base_sql += f" {order_clause} LIMIT ? OFFSET ?"
@@ -84,18 +101,29 @@ def search_sfx(
             results.append(item)
 
         if terms:
-            count_sql = """
-                SELECT COUNT(*) FROM audio_files a
-                JOIN audio_fts ON a.id = audio_fts.rowid
-                WHERE audio_fts MATCH ?
-            """
+            if collection_only:
+                count_sql = """
+                    SELECT COUNT(*) FROM audio_files a
+                    JOIN audio_fts ON a.id = audio_fts.rowid
+                    JOIN user_collection uc ON a.id = uc.audio_id
+                    WHERE audio_fts MATCH ?
+                """
+            else:
+                count_sql = """
+                    SELECT COUNT(*) FROM audio_files a
+                    JOIN audio_fts ON a.id = audio_fts.rowid
+                    WHERE audio_fts MATCH ?
+                """
             count_params = [fts_query]
             if category:
                 count_sql += " AND a.category = ?"
                 count_params.append(category)
             total = conn.execute(count_sql, count_params).fetchone()[0]
         else:
-            count_sql = "SELECT COUNT(*) FROM audio_files"
+            if collection_only:
+                count_sql = "SELECT COUNT(*) FROM audio_files a JOIN user_collection uc ON a.id = uc.audio_id"
+            else:
+                count_sql = "SELECT COUNT(*) FROM audio_files a"
             count_params = []
             if conditions:
                 count_sql += " WHERE " + " AND ".join(conditions)
@@ -108,6 +136,35 @@ def search_sfx(
             "limit": limit,
             "offset": offset
         }
+    finally:
+        conn.close()
+
+@router.get("/collection/ids")
+def get_collection_ids():
+    conn = get_db()
+    try:
+        rows = conn.execute("SELECT audio_id FROM user_collection ORDER BY created_at DESC").fetchall()
+        return [r[0] for r in rows]
+    finally:
+        conn.close()
+
+@router.post("/collection/{file_id}")
+def add_to_collection(file_id: int):
+    conn = get_db()
+    try:
+        with conn:
+            conn.execute("INSERT OR IGNORE INTO user_collection (audio_id) VALUES (?)", [file_id])
+        return {"status": "added", "id": file_id, "in_collection": True}
+    finally:
+        conn.close()
+
+@router.delete("/collection/{file_id}")
+def remove_from_collection(file_id: int):
+    conn = get_db()
+    try:
+        with conn:
+            conn.execute("DELETE FROM user_collection WHERE audio_id = ?", [file_id])
+        return {"status": "removed", "id": file_id, "in_collection": False}
     finally:
         conn.close()
 

@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import WaveSurfer from 'wavesurfer.js';
-import { Play, Pause, Search, Volume2, Copy, Check, RefreshCw, Tag, X, Edit2, Wand2, Brain, Square, FolderOpen, Menu, ArrowUpDown, ArrowUp, ArrowDown, Download } from 'lucide-react';
+import { Play, Pause, Search, Volume2, Copy, Check, RefreshCw, Tag, X, Edit2, Wand2, Brain, Square, FolderOpen, Menu, ArrowUpDown, ArrowUp, ArrowDown, Download, Bookmark } from 'lucide-react';
 import { Logo } from './components/Logo';
 import { AudioPlayer } from './components/AudioPlayer';
 
@@ -41,6 +41,8 @@ export default function App() {
   const [volume, setVolume] = useState(1.0);
   const [sortBy, setSortBy] = useState<string>('name');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
+  const [collectionIds, setCollectionIds] = useState<Set<number>>(new Set());
+  const [collectionOnly, setCollectionOnly] = useState<boolean>(false);
   const isLoopingRef = useRef(false);
   isLoopingRef.current = isLooping;
 
@@ -90,17 +92,67 @@ export default function App() {
     };
   }, []);
 
+  // Fetch all bookmarked collection IDs
+  const fetchCollectionIds = async () => {
+    try {
+      const res = await fetch('/api/collection/ids');
+      const ids: number[] = await res.json();
+      setCollectionIds(new Set(ids));
+    } catch (e) {
+      console.error('Error fetching collection IDs:', e);
+    }
+  };
+
+  useEffect(() => {
+    fetchCollectionIds();
+  }, []);
+
   // Fetch search results
-  const fetchResults = async (q: string, cat: string, sBy: string = sortBy, sOrder: string = sortOrder) => {
+  const fetchResults = async (
+    q: string,
+    cat: string,
+    sBy: string = sortBy,
+    sOrder: string = sortOrder,
+    cOnly: boolean = collectionOnly
+  ) => {
     try {
       const res = await fetch(
-        `/api/search?q=${encodeURIComponent(q)}&category=${encodeURIComponent(cat)}&sort_by=${encodeURIComponent(sBy)}&sort_order=${encodeURIComponent(sOrder)}&limit=100`
+        `/api/search?q=${encodeURIComponent(q)}&category=${encodeURIComponent(cat)}&sort_by=${encodeURIComponent(sBy)}&sort_order=${encodeURIComponent(sOrder)}&collection_only=${cOnly}&limit=100`
       );
       const data = await res.json();
       setResults(data.results || []);
       setTotal(data.total || 0);
     } catch (e) {
       console.error(e);
+    }
+  };
+
+  const toggleCollect = async (item: AudioItem) => {
+    const inCollection = collectionIds.has(item.id);
+
+    // Optimistic UI update
+    setCollectionIds((prev) => {
+      const next = new Set(prev);
+      if (inCollection) {
+        next.delete(item.id);
+      } else {
+        next.add(item.id);
+      }
+      return next;
+    });
+
+    try {
+      if (inCollection) {
+        await fetch(`/api/collection/${item.id}`, { method: 'DELETE' });
+      } else {
+        await fetch(`/api/collection/${item.id}`, { method: 'POST' });
+      }
+      if (collectionOnly) {
+        fetchResults(query, category, sortBy, sortOrder, true);
+      }
+    } catch (e) {
+      console.error('Error toggling collection:', e);
+      fetchCollectionIds();
     }
   };
 
@@ -124,7 +176,7 @@ export default function App() {
       const aiData = await aiRes.json();
       setAiStatus(aiData);
       if (aiData.is_running) {
-        fetchResults(query, category, sortBy, sortOrder);
+        fetchResults(query, category, sortBy, sortOrder, collectionOnly);
       }
     } catch (e) {
       console.error(e);
@@ -132,8 +184,8 @@ export default function App() {
   };
 
   useEffect(() => {
-    fetchResults(query, category, sortBy, sortOrder);
-  }, [query, category, sortBy, sortOrder]);
+    fetchResults(query, category, sortBy, sortOrder, collectionOnly);
+  }, [query, category, sortBy, sortOrder, collectionOnly]);
 
   useEffect(() => {
     fetchAuxData();
@@ -230,6 +282,12 @@ export default function App() {
         if (item) {
           e.preventDefault();
           downloadAudio(item);
+        }
+      } else if (e.key.toLowerCase() === 'b' && !e.ctrlKey && !e.metaKey) {
+        const item = results.find((r) => r.id === selectedId);
+        if (item) {
+          e.preventDefault();
+          toggleCollect(item);
         }
       }
     };
@@ -422,6 +480,51 @@ export default function App() {
           {scanning ? 'Scanning...' : 'Rescan Library'}
         </button>
 
+        {/* Main Library Navigation */}
+        <div className="space-y-1 mb-4 shrink-0">
+          <button
+            onClick={() => {
+              setCollectionOnly(false);
+              setCategory('');
+              setSidebarOpen(false);
+            }}
+            className={`w-full flex items-center justify-between px-3 py-2 rounded-lg text-sm font-medium transition cursor-pointer ${
+              !collectionOnly
+                ? 'bg-indigo-600/20 text-indigo-300 border border-indigo-500/40 shadow-sm'
+                : 'text-slate-300 hover:bg-slate-800 border border-transparent'
+            }`}
+          >
+            <span className="flex items-center gap-2">
+              <span className="text-sm">📁</span>
+              All Sounds
+            </span>
+            <span className="text-xs text-slate-400 font-mono">{totalLibraryCount.toLocaleString()}</span>
+          </button>
+
+          <button
+            onClick={() => {
+              setCollectionOnly(true);
+              setCategory('');
+              setSidebarOpen(false);
+            }}
+            className={`w-full flex items-center justify-between px-3 py-2 rounded-lg text-sm font-medium transition cursor-pointer ${
+              collectionOnly
+                ? 'bg-amber-950/50 text-amber-300 border border-amber-600/60 shadow-sm'
+                : 'text-slate-300 hover:bg-slate-800 border border-transparent'
+            }`}
+          >
+            <span className="flex items-center gap-2">
+              <Bookmark className={`w-4 h-4 ${collectionOnly ? 'text-amber-400 fill-amber-400' : 'text-amber-400'}`} />
+              My Collection
+            </span>
+            <span className={`text-xs px-2 py-0.5 rounded-full font-mono ${
+              collectionOnly ? 'bg-amber-500/20 text-amber-300 font-semibold' : 'bg-slate-800 text-slate-400'
+            }`}>
+              {collectionIds.size}
+            </span>
+          </button>
+        </div>
+
         <h2 className="text-xs font-semibold uppercase tracking-wider text-slate-400 mb-2 px-2 flex items-center gap-1.5 shrink-0">
           <Tag className="w-3.5 h-3.5" />
           Categories
@@ -429,17 +532,6 @@ export default function App() {
 
         {/* Categories List (Scrollable Area) */}
         <div className="flex-1 overflow-y-auto min-h-0 space-y-1 pr-1">
-          <button
-            onClick={() => {
-              setCategory('');
-              setSidebarOpen(false);
-            }}
-            className={`w-full text-left px-3 py-1.5 rounded-md text-sm transition ${
-              category === '' ? 'bg-indigo-600/20 text-indigo-300 font-medium' : 'text-slate-400 hover:bg-slate-800'
-            }`}
-          >
-            All Sounds ({total})
-          </button>
           {categories.map((c) => (
             <button
               key={c.category}
@@ -572,17 +664,27 @@ export default function App() {
             </div>
           </div>
 
-          {/* Active Category Pill */}
-          {category && (
-            <div className="flex items-center gap-2 pt-1 min-w-0 overflow-hidden">
-              <span className="text-xs text-slate-500 shrink-0">Filtered by:</span>
-              <span className="inline-flex items-center gap-1.5 bg-slate-800 text-slate-300 border border-slate-700 text-xs px-2.5 py-1 rounded-full truncate max-w-full">
-                <Tag className="w-3 h-3 shrink-0" />
-                <span className="truncate">Category: <strong className="font-semibold">{category}</strong></span>
-                <button onClick={() => setCategory('')} className="hover:text-white ml-0.5 shrink-0">
-                  <X className="w-3.5 h-3.5" />
-                </button>
-              </span>
+          {/* Active Filter Pills (Collection & Category) */}
+          {(collectionOnly || category) && (
+            <div className="flex items-center gap-2 pt-1 min-w-0 overflow-hidden flex-wrap">
+              {collectionOnly && (
+                <span className="inline-flex items-center gap-1.5 bg-amber-950/50 text-amber-300 border border-amber-600/60 text-xs px-2.5 py-1 rounded-full shrink-0">
+                  <Bookmark className="w-3 h-3 text-amber-400 fill-amber-400 shrink-0" />
+                  <span>Viewing: <strong>My Collection</strong> ({total})</span>
+                  <button onClick={() => setCollectionOnly(false)} className="hover:text-white ml-0.5 shrink-0" title="Switch to All Sounds">
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                </span>
+              )}
+              {category && (
+                <span className="inline-flex items-center gap-1.5 bg-slate-800 text-slate-300 border border-slate-700 text-xs px-2.5 py-1 rounded-full truncate max-w-full">
+                  <Tag className="w-3 h-3 shrink-0" />
+                  <span className="truncate">Category: <strong className="font-semibold">{category}</strong></span>
+                  <button onClick={() => setCategory('')} className="hover:text-white ml-0.5 shrink-0">
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                </span>
+              )}
             </div>
           )}
         </div>
@@ -736,6 +838,22 @@ export default function App() {
                         >
                           <Wand2 className={`w-3.5 h-3.5 ${isListening ? 'animate-spin text-amber-400' : ''}`} />
                         </button>
+
+                        {/* Collect / Bookmark Button */}
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            toggleCollect(item);
+                          }}
+                          className={`p-1 rounded transition shrink-0 cursor-pointer ${
+                            collectionIds.has(item.id)
+                              ? 'text-amber-400 hover:text-amber-300'
+                              : 'opacity-30 group-hover:opacity-100 hover:text-amber-400 text-slate-400'
+                          }`}
+                          title={collectionIds.has(item.id) ? 'Remove from My Collection [B]' : 'Save to My Collection [B]'}
+                        >
+                          <Bookmark className={`w-3.5 h-3.5 ${collectionIds.has(item.id) ? 'fill-amber-400 text-amber-400' : ''}`} />
+                        </button>
                       </div>
 
                       {/* Subtitle: Original filename */}
@@ -796,6 +914,27 @@ export default function App() {
                   </tr>
                 );
               })}
+              {results.length === 0 && (
+                <tr>
+                  <td colSpan={6} className="text-center py-16 text-slate-500">
+                    {collectionOnly ? (
+                      <div className="flex flex-col items-center gap-2">
+                        <Bookmark className="w-8 h-8 text-amber-500/40" />
+                        <span className="text-sm font-medium text-slate-300">My Collection is currently empty</span>
+                        <span className="text-xs text-slate-400">Click the bookmark ribbon or press [B] on any sound effect to save it here.</span>
+                        <button
+                          onClick={() => setCollectionOnly(false)}
+                          className="mt-2 text-xs bg-indigo-600/30 hover:bg-indigo-600 text-indigo-300 hover:text-white px-3 py-1.5 rounded-lg border border-indigo-500/40 transition cursor-pointer"
+                        >
+                          Browse All Sounds
+                        </button>
+                      </div>
+                    ) : (
+                      'No sound effects found matching your query.'
+                    )}
+                  </td>
+                </tr>
+              )}
             </tbody>
           </table>
         </div>
@@ -822,6 +961,8 @@ export default function App() {
           onCopySMB={copySMB}
           copiedId={copiedId}
           onDownload={downloadAudio}
+          isCollected={currentItem ? collectionIds.has(currentItem.id) : false}
+          onToggleCollect={toggleCollect}
         />
 
         {/* Toast Notification for Clipboard */}
