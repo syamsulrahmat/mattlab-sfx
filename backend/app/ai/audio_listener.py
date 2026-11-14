@@ -1,10 +1,6 @@
 import os
-import torch
-import soundfile as sf
-import librosa
 import numpy as np
 import re
-from transformers import pipeline
 
 _classifier = None
 
@@ -23,6 +19,11 @@ IGNORE_CLASSES = {
 def get_classifier():
     global _classifier
     if _classifier is None:
+        try:
+            from transformers import pipeline
+            import torch
+        except ImportError as e:
+            raise RuntimeError(f"AI packages not installed: {e}")
         print("Loading MIT Audio Spectrogram Transformer (AST)...")
         _classifier = pipeline(
             "audio-classification",
@@ -44,6 +45,7 @@ def analyze_acoustic_features(audio: np.ndarray, sr: int) -> tuple[str, str, flo
         speed = "Slow"
 
     try:
+        import librosa
         centroid = librosa.feature.spectral_centroid(y=audio, sr=sr).mean()
         if centroid < 1200:
             tone = "Deep"
@@ -56,17 +58,21 @@ def analyze_acoustic_features(audio: np.ndarray, sr: int) -> tuple[str, str, flo
 
     return speed, tone, duration
 
-def classify_audio_sound(file_path: str, top_k: int = 6) -> list[tuple[str, float]]:
+def classify_audio_sound(file_path: str, top_k: int = 6, audio: np.ndarray = None, sr: int = None) -> list[tuple[str, float]]:
     try:
+        import soundfile as sf
+        import torch
         classifier = get_classifier()
-        audio, sr = sf.read(file_path)
-        if len(audio.shape) > 1:
-            audio = audio.mean(axis=1)
+        if audio is None or sr is None:
+            audio, sr = sf.read(file_path)
+            if len(audio.shape) > 1:
+                audio = audio.mean(axis=1)
 
         max_samples = int(sr * 5.0)
         audio_clip = audio[:max_samples]
 
-        results = classifier({"raw": audio_clip.astype(np.float32), "sampling_rate": sr}, top_k=top_k)
+        with torch.inference_mode():
+            results = classifier({"raw": audio_clip.astype(np.float32), "sampling_rate": sr}, top_k=top_k)
         return [(r["label"], float(r["score"])) for r in results]
     except Exception as e:
         print(f"Error classifying {file_path}: {e}")
@@ -78,7 +84,10 @@ def predict_smart_name(file_path: str, orig_name: str = "") -> tuple[str, bool]:
     If music/song, preserves original title as-is.
     If SFX, generates 3 to 4 Title Case comma-separated keywords.
     """
+    audio = None
+    sr = None
     try:
+        import soundfile as sf
         audio, sr = sf.read(file_path)
         if len(audio.shape) > 1:
             audio = audio.mean(axis=1)
@@ -86,7 +95,7 @@ def predict_smart_name(file_path: str, orig_name: str = "") -> tuple[str, bool]:
     except Exception:
         speed, tone, duration = "", "", 0.0
 
-    predictions = classify_audio_sound(file_path, top_k=6)
+    predictions = classify_audio_sound(file_path, top_k=6, audio=audio, sr=sr)
     if not predictions:
         return orig_name or "Unknown Sound", False
 

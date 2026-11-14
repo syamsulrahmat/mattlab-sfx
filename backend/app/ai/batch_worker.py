@@ -1,6 +1,7 @@
 import os
 import time
 import threading
+import gc
 from app.db.database import get_db
 from app.ai.audio_listener import predict_smart_name
 
@@ -76,6 +77,8 @@ def _classify_worker():
                         batch_count += 1
                         if batch_count % 10 == 0:
                             conn.commit()
+                        if batch_count % 20 == 0:
+                            gc.collect()
                 except Exception as e:
                     print(f"Error classifying {rel_path}: {e}")
 
