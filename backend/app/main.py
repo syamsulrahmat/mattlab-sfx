@@ -1,6 +1,6 @@
 import os
 
-# Limit CPU inference threads to 1 core globally to prevent host contention
+# Limit CPU inference threads to 1 core globally on boot to prevent host contention
 os.environ["OMP_NUM_THREADS"] = "1"
 os.environ["MKL_NUM_THREADS"] = "1"
 os.environ["OPENBLAS_NUM_THREADS"] = "1"
@@ -8,7 +8,7 @@ os.environ["VECLIB_MAXIMUM_THREADS"] = "1"
 os.environ["NUMEXPR_NUM_THREADS"] = "1"
 os.environ["TORCH_NUM_THREADS"] = "1"
 
-from fastapi import FastAPI, BackgroundTasks, Depends
+from fastapi import FastAPI, BackgroundTasks, Depends, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from app.db.database import init_db, get_db
@@ -17,7 +17,13 @@ from app.api.routes_audio import router as audio_router
 from app.api.routes_auth import router as auth_router
 from app.auth import require_admin
 from app.scanner.crawler import scan_library, scan_status
-from app.ai.batch_worker import start_ai_classification, stop_ai_classification, ai_task_status
+from app.ai.batch_worker import (
+    start_ai_classification,
+    stop_ai_classification,
+    ai_task_status,
+    record_user_activity,
+    evaluate_cpu_governor,
+)
 
 app = FastAPI(title="MattLab SFX API", version="1.0.0")
 
@@ -28,6 +34,21 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Automated background polling paths that should NOT count as active user interaction
+IGNORED_ACTIVITY_PATHS = {
+    "/api/ai/status",
+    "/api/scan/status",
+    "/api/categories",
+    "/api/auth/me",
+}
+
+@app.middleware("http")
+async def track_user_activity_middleware(request: Request, call_next):
+    path = request.url.path
+    if not any(path.startswith(p) for p in IGNORED_ACTIVITY_PATHS):
+        record_user_activity()
+    return await call_next(request)
 
 @app.on_event("startup")
 def on_startup():
@@ -68,6 +89,12 @@ def get_ai_status():
             ai_task_status["total"] = total
             ai_task_status["processed"] = classified
             ai_task_status["remaining"] = total - classified
+            
+            # Predict the governor mode that will engage if started now
+            mode, threads, _, load_pct = evaluate_cpu_governor()
+            ai_task_status["governor_mode"] = mode
+            ai_task_status["active_threads"] = threads
+            ai_task_status["server_load_pct"] = load_pct
         except Exception:
             pass
     return ai_task_status

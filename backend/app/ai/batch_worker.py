@@ -7,19 +7,72 @@ from app.ai.audio_listener import predict_smart_name
 
 SFX_DIR = os.environ.get("SFX_DIR", "/sfx")
 
+# User activity tracker: timestamp of latest in-app action (audio play, search, etc.)
+_last_user_activity = 0.0
+
+def record_user_activity():
+    """Call whenever real user interaction happens (audio streaming, searching, downloading)."""
+    global _last_user_activity
+    _last_user_activity = time.time()
+
+def get_last_user_activity() -> float:
+    return _last_user_activity
+
+def evaluate_cpu_governor() -> tuple[str, int, float, int]:
+    """
+    Evaluates host-wide load and recent in-app user activity to determine governor tier:
+    Returns (mode, num_threads, sleep_gap, server_load_pct)
+      - "turbo": 4 threads (or cpu_count), 0.0s yield
+      - "balanced": 2 threads, 0.03s yield
+      - "eco": 1 thread, 0.10s yield
+    """
+    total_cpus = os.cpu_count() or 4
+    server_load_pct = 0
+    try:
+        load1, _, _ = os.getloadavg()
+        normalized_load = load1 / max(1, total_cpus)
+        server_load_pct = min(100, round(normalized_load * 100))
+    except Exception:
+        normalized_load = 0.2
+        server_load_pct = 20
+
+    time_since_user = time.time() - _last_user_activity
+    user_active_recently = time_since_user < 300  # within last 5 minutes
+
+    if user_active_recently or normalized_load > 0.65:
+        # Eco mode: preserve host responsiveness, prevent audio jitter
+        mode = "eco"
+        threads = 1
+        sleep_gap = 0.10
+    elif normalized_load > 0.30:
+        # Balanced mode: moderate background speed
+        mode = "balanced"
+        threads = min(2, total_cpus)
+        sleep_gap = 0.03
+    else:
+        # Turbo mode: maximum speed on idle server
+        mode = "turbo"
+        threads = min(4, total_cpus)
+        sleep_gap = 0.0
+
+    return mode, threads, sleep_gap, server_load_pct
+
 ai_task_status = {
     "is_running": False,
     "total": 0,
     "processed": 0,
     "remaining": 0,
     "current_file": "",
-    "last_result": ""
+    "last_result": "",
+    "governor_mode": "idle",
+    "active_threads": 1,
+    "server_load_pct": 0,
 }
 
 def _classify_worker():
     global ai_task_status
 
-    # CPU Throttling: Cap PyTorch to 1 thread & set low scheduler priority (nice 15)
+    # Initial safety throttling
     try:
         import torch
         torch.set_num_threads(1)
@@ -58,9 +111,26 @@ def _classify_worker():
         """).fetchall()
 
         batch_count = 0
+        sleep_gap = 0.05
+        current_threads = 1
+
         for r in rows:
             if not ai_task_status["is_running"]:
                 break
+
+            # Re-evaluate CPU governor dynamically every 5 items
+            if batch_count % 5 == 0:
+                mode, target_threads, sleep_gap, load_pct = evaluate_cpu_governor()
+                ai_task_status["governor_mode"] = mode
+                ai_task_status["active_threads"] = target_threads
+                ai_task_status["server_load_pct"] = load_pct
+                if target_threads != current_threads:
+                    try:
+                        import torch
+                        torch.set_num_threads(target_threads)
+                        current_threads = target_threads
+                    except Exception:
+                        pass
 
             file_id = r["id"]
             rel_path = r["rel_path"]
@@ -93,12 +163,12 @@ def _classify_worker():
                         batch_count += 1
                         if batch_count % 10 == 0:
                             conn.commit()
-                        if batch_count % 20 == 0:
+                        if batch_count % 30 == 0:
                             gc.collect()
                     else:
                         conn.execute("UPDATE audio_files SET is_classified = 1 WHERE id = ?", (file_id,))
                 except Exception as e:
-                    print(f"Error classifying {rel_path}: {e}")
+                    print(f"Error classifying {rel_path}: {e}", flush=True)
                     conn.execute("UPDATE audio_files SET is_classified = 1 WHERE id = ?", (file_id,))
             else:
                 conn.execute("UPDATE audio_files SET is_classified = 1 WHERE id = ?", (file_id,))
@@ -107,7 +177,8 @@ def _classify_worker():
             if ai_task_status["remaining"] > 0:
                 ai_task_status["remaining"] -= 1
 
-            time.sleep(0.05) # Prevent CPU starvation & maintain cool thermal profile
+            if sleep_gap > 0:
+                time.sleep(sleep_gap)
 
         conn.commit()
 

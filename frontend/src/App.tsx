@@ -79,11 +79,24 @@ export default function App() {
   const isLoopingRef = useRef(false);
   isLoopingRef.current = isLooping;
 
-  const [aiStatus, setAiStatus] = useState<{ is_running: boolean; total: number; processed: number; last_result: string }>({
+  const [aiStatus, setAiStatus] = useState<{
+    is_running: boolean;
+    total: number;
+    processed: number;
+    remaining?: number;
+    last_result: string;
+    governor_mode?: 'turbo' | 'balanced' | 'eco' | string;
+    active_threads?: number;
+    server_load_pct?: number;
+  }>({
     is_running: false,
     total: 0,
     processed: 0,
-    last_result: ''
+    remaining: 0,
+    last_result: '',
+    governor_mode: 'eco',
+    active_threads: 1,
+    server_load_pct: 0,
   });
 
   const waveformRef = useRef<HTMLDivElement>(null);
@@ -1005,27 +1018,50 @@ export default function App() {
                   <Brain className="w-3.5 h-3.5" />
                   AI Acoustic Renaming
                 </span>
-                {isAiComplete ? (
-                  <button
-                    onClick={toggleBatchAi}
-                    className="p-1 rounded bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 text-xs flex items-center gap-1 hover:bg-emerald-500/30 transition cursor-pointer"
-                    title="Library 100% acoustically classified"
-                  >
-                    <Check className="w-3 h-3" />
-                  </button>
-                ) : (
-                  <button
-                    onClick={toggleBatchAi}
-                    className={`p-1 rounded text-xs transition cursor-pointer ${
-                      aiStatus.is_running
-                        ? 'bg-rose-600/80 hover:bg-rose-500 text-white'
-                        : 'bg-amber-600/80 hover:bg-amber-500 text-white'
-                    }`}
-                    title={aiStatus.is_running ? 'Pause batch acoustic renaming' : 'Start unified acoustic renaming for whole library'}
-                  >
-                    {aiStatus.is_running ? <Square className="w-3 h-3" /> : <Play className="w-3 h-3 ml-0.5" />}
-                  </button>
-                )}
+                <div className="flex items-center gap-1.5">
+                  {aiStatus.is_running && (
+                    <span
+                      className={`text-[9px] font-medium px-1.5 py-0.5 rounded flex items-center gap-1 transition-all ${
+                        aiStatus.governor_mode === 'turbo'
+                          ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
+                          : aiStatus.governor_mode === 'balanced'
+                          ? 'bg-sky-500/20 text-sky-300 border border-sky-500/40'
+                          : 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
+                      }`}
+                      title={`Dynamic Governor: ${
+                        aiStatus.governor_mode === 'turbo'
+                          ? 'Turbo mode (4 CPU cores, 0ms gap) - Server idle'
+                          : aiStatus.governor_mode === 'balanced'
+                          ? 'Balanced mode (2 CPU cores, 30ms gap) - Light server load'
+                          : 'Eco mode (1 CPU core, 100ms gap) - Active user or heavy load'
+                      } • Host load: ${aiStatus.server_load_pct ?? 0}%`}
+                    >
+                      {aiStatus.governor_mode === 'turbo' ? '🚀 Turbo' : aiStatus.governor_mode === 'balanced' ? '⚖️ Balanced' : '🍃 Eco'}
+                      <span className="opacity-75">({aiStatus.active_threads ?? 1}T)</span>
+                    </span>
+                  )}
+                  {isAiComplete ? (
+                    <button
+                      onClick={toggleBatchAi}
+                      className="p-1 rounded bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 text-xs flex items-center gap-1 hover:bg-emerald-500/30 transition cursor-pointer"
+                      title="Library 100% acoustically classified"
+                    >
+                      <Check className="w-3 h-3" />
+                    </button>
+                  ) : (
+                    <button
+                      onClick={toggleBatchAi}
+                      className={`p-1 rounded text-xs transition cursor-pointer ${
+                        aiStatus.is_running
+                          ? 'bg-rose-600/80 hover:bg-rose-500 text-white'
+                          : 'bg-amber-600/80 hover:bg-amber-500 text-white'
+                      }`}
+                      title={aiStatus.is_running ? 'Pause batch acoustic renaming' : 'Start unified acoustic renaming for whole library'}
+                    >
+                      {aiStatus.is_running ? <Square className="w-3 h-3" /> : <Play className="w-3 h-3 ml-0.5" />}
+                    </button>
+                  )}
+                </div>
               </div>
               <div className="text-[11px] text-slate-400 flex items-center justify-between">
                 <span>{aiStatus.is_running ? 'Processing' : isAiComplete ? 'Library status:' : 'Unified library:'}</span>
