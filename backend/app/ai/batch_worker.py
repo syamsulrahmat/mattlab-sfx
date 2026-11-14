@@ -18,6 +18,19 @@ ai_task_status = {
 
 def _classify_worker():
     global ai_task_status
+
+    # CPU Throttling: Cap PyTorch to 1 thread & set low scheduler priority (nice 15)
+    try:
+        import torch
+        torch.set_num_threads(1)
+        torch.set_num_interop_threads(1)
+    except Exception:
+        pass
+    try:
+        os.nice(15)
+    except Exception:
+        pass
+
     conn = get_db()
     try:
         # Get total files in library and total already classified
@@ -91,7 +104,7 @@ def _classify_worker():
             if ai_task_status["remaining"] > 0:
                 ai_task_status["remaining"] -= 1
 
-            time.sleep(0.02) # Prevent CPU starvation
+            time.sleep(0.05) # Prevent CPU starvation & maintain cool thermal profile
 
         conn.commit()
 

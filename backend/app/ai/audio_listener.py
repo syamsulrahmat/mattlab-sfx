@@ -22,6 +22,9 @@ def get_classifier():
         try:
             from transformers import pipeline
             import torch
+            # Cap PyTorch to strictly 1 CPU thread to prevent host CPU contention
+            torch.set_num_threads(1)
+            torch.set_num_interop_threads(1)
         except ImportError as e:
             raise RuntimeError(f"AI packages not installed: {e}")
         print("Loading MIT Audio Spectrogram Transformer (AST)...")
@@ -30,7 +33,7 @@ def get_classifier():
             model="MIT/ast-finetuned-audioset-10-10-0.4593",
             device="cpu"
         )
-        print("AST Acoustic Classifier Ready!")
+        print("AST Acoustic Classifier Ready (CPU 1-Thread Mode)!")
     return _classifier
 
 def analyze_acoustic_features(audio: np.ndarray, sr: int) -> tuple[str, str, float]:
