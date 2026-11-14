@@ -1,9 +1,10 @@
 import os
 import sqlite3
 from typing import Optional
-from fastapi import APIRouter, Query, HTTPException, Body
+from fastapi import APIRouter, Query, HTTPException, Body, Depends
 from app.db.database import get_db
 from app.ai.audio_listener import predict_smart_name, classify_audio_sound
+from app.auth import get_optional_user, get_current_user, require_admin
 
 router = APIRouter()
 SFX_DIR = os.environ.get("SFX_DIR", "/sfx")
@@ -27,10 +28,12 @@ def search_sfx(
     sort_by: str = Query("default", description="Sort field: default, name, duration, category, sample_rate, id, rank"),
     sort_order: str = Query("asc", description="Sort direction: asc or desc"),
     limit: int = Query(50, ge=1, le=200),
-    offset: int = Query(0, ge=0)
+    offset: int = Query(0, ge=0),
+    user: Optional[dict] = Depends(get_optional_user)
 ):
     conn = get_db()
     try:
+        user_id = user["id"] if user else 1
         terms = q.strip().replace('"', '""')
         params = []
         direction = "DESC" if sort_order.lower() == "desc" else "ASC"
@@ -43,18 +46,19 @@ def search_sfx(
                     FROM audio_files a
                     JOIN audio_fts ON a.id = audio_fts.rowid
                     JOIN collection_items ci ON a.id = ci.audio_id
-                    WHERE audio_fts MATCH ? AND ci.collection_id = ?
+                    JOIN project_collections pc ON ci.collection_id = pc.id
+                    WHERE audio_fts MATCH ? AND ci.collection_id = ? AND pc.user_id = ?
                 """
-                params.extend([fts_query, project_id])
+                params.extend([fts_query, project_id, user_id])
             elif collection_only:
                 base_sql = """
                     SELECT a.*, bm25(audio_fts) as rank
                     FROM audio_files a
                     JOIN audio_fts ON a.id = audio_fts.rowid
                     JOIN user_collection uc ON a.id = uc.audio_id
-                    WHERE audio_fts MATCH ?
+                    WHERE audio_fts MATCH ? AND uc.user_id = ?
                 """
-                params.append(fts_query)
+                params.extend([fts_query, user_id])
             else:
                 base_sql = """
                     SELECT a.*, bm25(audio_fts) as rank
@@ -78,12 +82,17 @@ def search_sfx(
             params.extend([limit, offset])
         else:
             if project_id is not None:
-                base_sql = "SELECT a.* FROM audio_files a JOIN collection_items ci ON a.id = ci.audio_id"
-                conditions = ["ci.collection_id = ?"]
-                params.append(project_id)
+                base_sql = """
+                    SELECT a.* FROM audio_files a
+                    JOIN collection_items ci ON a.id = ci.audio_id
+                    JOIN project_collections pc ON ci.collection_id = pc.id
+                """
+                conditions = ["ci.collection_id = ?", "pc.user_id = ?"]
+                params.extend([project_id, user_id])
             elif collection_only:
                 base_sql = "SELECT a.* FROM audio_files a JOIN user_collection uc ON a.id = uc.audio_id"
-                conditions = []
+                conditions = ["uc.user_id = ?"]
+                params.append(user_id)
             else:
                 base_sql = "SELECT a.* FROM audio_files a"
                 conditions = []
@@ -126,17 +135,18 @@ def search_sfx(
                     SELECT COUNT(*) FROM audio_files a
                     JOIN audio_fts ON a.id = audio_fts.rowid
                     JOIN collection_items ci ON a.id = ci.audio_id
-                    WHERE audio_fts MATCH ? AND ci.collection_id = ?
+                    JOIN project_collections pc ON ci.collection_id = pc.id
+                    WHERE audio_fts MATCH ? AND ci.collection_id = ? AND pc.user_id = ?
                 """
-                count_params = [fts_query, project_id]
+                count_params = [fts_query, project_id, user_id]
             elif collection_only:
                 count_sql = """
                     SELECT COUNT(*) FROM audio_files a
                     JOIN audio_fts ON a.id = audio_fts.rowid
                     JOIN user_collection uc ON a.id = uc.audio_id
-                    WHERE audio_fts MATCH ?
+                    WHERE audio_fts MATCH ? AND uc.user_id = ?
                 """
-                count_params = [fts_query]
+                count_params = [fts_query, user_id]
             else:
                 count_sql = """
                     SELECT COUNT(*) FROM audio_files a
@@ -151,7 +161,11 @@ def search_sfx(
             total = conn.execute(count_sql, count_params).fetchone()[0]
         else:
             if project_id is not None:
-                count_sql = "SELECT COUNT(*) FROM audio_files a JOIN collection_items ci ON a.id = ci.audio_id"
+                count_sql = """
+                    SELECT COUNT(*) FROM audio_files a
+                    JOIN collection_items ci ON a.id = ci.audio_id
+                    JOIN project_collections pc ON ci.collection_id = pc.id
+                """
             elif collection_only:
                 count_sql = "SELECT COUNT(*) FROM audio_files a JOIN user_collection uc ON a.id = uc.audio_id"
             else:
@@ -172,32 +186,44 @@ def search_sfx(
         conn.close()
 
 @router.get("/collection/ids")
-def get_collection_ids():
+def get_collection_ids(user: Optional[dict] = Depends(get_optional_user)):
+    user_id = user["id"] if user else 1
     conn = get_db()
     try:
-        rows = conn.execute("SELECT audio_id FROM user_collection ORDER BY created_at DESC").fetchall()
+        rows = conn.execute(
+            "SELECT audio_id FROM user_collection WHERE user_id = ? ORDER BY created_at DESC",
+            (user_id,)
+        ).fetchall()
         return [r[0] for r in rows]
     finally:
         conn.close()
 
 @router.post("/collection/{file_id}")
-def add_to_collection(file_id: int):
+def add_to_collection(file_id: int, current_user: dict = Depends(get_current_user)):
+    user_id = current_user["id"]
     conn = get_db()
     try:
         with conn:
-            conn.execute("INSERT OR IGNORE INTO user_collection (audio_id) VALUES (?)", [file_id])
+            conn.execute(
+                "INSERT OR IGNORE INTO user_collection (user_id, audio_id) VALUES (?, ?)",
+                (user_id, file_id)
+            )
         return {"status": "added", "id": file_id, "in_collection": True}
     finally:
         conn.close()
 
 @router.delete("/collection/{file_id}")
-def remove_from_collection(file_id: int):
+def remove_from_collection(file_id: int, current_user: dict = Depends(get_current_user)):
+    user_id = current_user["id"]
     conn = get_db()
     try:
         with conn:
-            conn.execute("DELETE FROM user_collection WHERE audio_id = ?", [file_id])
-            # Also clean up any project assignments for this sound
-            conn.execute("DELETE FROM collection_items WHERE audio_id = ?", [file_id])
+            conn.execute("DELETE FROM user_collection WHERE user_id = ? AND audio_id = ?", (user_id, file_id))
+            # Also clean up project assignments for this user's projects
+            conn.execute("""
+                DELETE FROM collection_items
+                WHERE audio_id = ? AND collection_id IN (SELECT id FROM project_collections WHERE user_id = ?)
+            """, (file_id, user_id))
         return {"status": "removed", "id": file_id, "in_collection": False}
     finally:
         conn.close()
@@ -205,22 +231,25 @@ def remove_from_collection(file_id: int):
 # --- Project Collections Endpoints ---
 
 @router.get("/projects")
-def get_projects():
+def get_projects(user: Optional[dict] = Depends(get_optional_user)):
+    user_id = user["id"] if user else 1
     conn = get_db()
     try:
         rows = conn.execute("""
             SELECT p.id, p.name, p.description, p.color, p.created_at, COUNT(ci.audio_id) as sound_count
             FROM project_collections p
             LEFT JOIN collection_items ci ON p.id = ci.collection_id
+            WHERE p.user_id = ?
             GROUP BY p.id
             ORDER BY p.name COLLATE NOCASE ASC
-        """).fetchall()
+        """, (user_id,)).fetchall()
         return [dict(r) for r in rows]
     finally:
         conn.close()
 
 @router.post("/projects")
-def create_project(payload: dict = Body(...)):
+def create_project(payload: dict = Body(...), current_user: dict = Depends(get_current_user)):
+    user_id = current_user["id"]
     name = payload.get("name", "").strip()
     if not name:
         raise HTTPException(status_code=400, detail="Project name cannot be empty")
@@ -228,10 +257,18 @@ def create_project(payload: dict = Body(...)):
     description = payload.get("description", "").strip()
     conn = get_db()
     try:
+        # Check if project name already exists for this user
+        existing = conn.execute(
+            "SELECT id FROM project_collections WHERE user_id = ? AND LOWER(name) = LOWER(?)",
+            (user_id, name)
+        ).fetchone()
+        if existing:
+            raise HTTPException(status_code=400, detail="A project with this name already exists")
+
         with conn:
             cursor = conn.execute(
-                "INSERT INTO project_collections (name, description, color) VALUES (?, ?, ?)",
-                (name, description, color)
+                "INSERT INTO project_collections (user_id, name, description, color) VALUES (?, ?, ?, ?)",
+                (user_id, name, description, color)
             )
             project_id = cursor.lastrowid
         return {
@@ -244,13 +281,12 @@ def create_project(payload: dict = Body(...)):
                 "sound_count": 0
             }
         }
-    except sqlite3.IntegrityError:
-        raise HTTPException(status_code=400, detail="A project with this name already exists")
     finally:
         conn.close()
 
 @router.patch("/projects/{project_id}")
-def update_project(project_id: int, payload: dict = Body(...)):
+def update_project(project_id: int, payload: dict = Body(...), current_user: dict = Depends(get_current_user)):
+    user_id = current_user["id"]
     conn = get_db()
     try:
         name = payload.get("name", "").strip() if "name" in payload else None
@@ -262,6 +298,14 @@ def update_project(project_id: int, payload: dict = Body(...)):
         if name is not None:
             if not name:
                 raise HTTPException(status_code=400, detail="Project name cannot be empty")
+            # Check duplicate name for this user
+            existing = conn.execute(
+                "SELECT id FROM project_collections WHERE user_id = ? AND LOWER(name) = LOWER(?) AND id != ?",
+                (user_id, name, project_id)
+            ).fetchone()
+            if existing:
+                raise HTTPException(status_code=400, detail="A project with this name already exists")
+
             updates.append("name = ?")
             params.append(name)
         if color is not None:
@@ -274,10 +318,10 @@ def update_project(project_id: int, payload: dict = Body(...)):
         if not updates:
             raise HTTPException(status_code=400, detail="No fields to update")
 
-        params.append(project_id)
+        params.extend([project_id, user_id])
         with conn:
             cursor = conn.execute(
-                f"UPDATE project_collections SET {', '.join(updates)} WHERE id = ?",
+                f"UPDATE project_collections SET {', '.join(updates)} WHERE id = ? AND user_id = ?",
                 params
             )
             if cursor.rowcount == 0:
@@ -287,22 +331,24 @@ def update_project(project_id: int, payload: dict = Body(...)):
             SELECT p.id, p.name, p.description, p.color, p.created_at, COUNT(ci.audio_id) as sound_count
             FROM project_collections p
             LEFT JOIN collection_items ci ON p.id = ci.collection_id
-            WHERE p.id = ?
+            WHERE p.id = ? AND p.user_id = ?
             GROUP BY p.id
-        """, [project_id]).fetchone()
+        """, [project_id, user_id]).fetchone()
         return {"status": "success", "project": dict(row)}
-    except sqlite3.IntegrityError:
-        raise HTTPException(status_code=400, detail="A project with this name already exists")
     finally:
         conn.close()
 
 @router.delete("/projects/{project_id}")
-def delete_project(project_id: int):
+def delete_project(project_id: int, current_user: dict = Depends(get_current_user)):
+    user_id = current_user["id"]
     conn = get_db()
     try:
         with conn:
-            conn.execute("DELETE FROM collection_items WHERE collection_id = ?", [project_id])
-            cursor = conn.execute("DELETE FROM project_collections WHERE id = ?", [project_id])
+            conn.execute("""
+                DELETE FROM collection_items
+                WHERE collection_id IN (SELECT id FROM project_collections WHERE id = ? AND user_id = ?)
+            """, (project_id, user_id))
+            cursor = conn.execute("DELETE FROM project_collections WHERE id = ? AND user_id = ?", (project_id, user_id))
             if cursor.rowcount == 0:
                 raise HTTPException(status_code=404, detail="Project not found")
         return {"status": "success", "deleted_id": project_id}
@@ -310,10 +356,16 @@ def delete_project(project_id: int):
         conn.close()
 
 @router.get("/projects/assignments")
-def get_project_assignments():
+def get_project_assignments(user: Optional[dict] = Depends(get_optional_user)):
+    user_id = user["id"] if user else 1
     conn = get_db()
     try:
-        rows = conn.execute("SELECT audio_id, collection_id FROM collection_items").fetchall()
+        rows = conn.execute("""
+            SELECT ci.audio_id, ci.collection_id
+            FROM collection_items ci
+            JOIN project_collections pc ON ci.collection_id = pc.id
+            WHERE pc.user_id = ?
+        """, (user_id,)).fetchall()
         assignments = {}
         for r in rows:
             aid = r[0]
@@ -326,11 +378,12 @@ def get_project_assignments():
         conn.close()
 
 @router.post("/projects/{project_id}/items/{audio_id}")
-def add_item_to_project(project_id: int, audio_id: int):
+def add_item_to_project(project_id: int, audio_id: int, current_user: dict = Depends(get_current_user)):
+    user_id = current_user["id"]
     conn = get_db()
     try:
         with conn:
-            p = conn.execute("SELECT id FROM project_collections WHERE id = ?", [project_id]).fetchone()
+            p = conn.execute("SELECT id FROM project_collections WHERE id = ? AND user_id = ?", (project_id, user_id)).fetchone()
             if not p:
                 raise HTTPException(status_code=404, detail="Project not found")
             conn.execute(
@@ -338,16 +391,23 @@ def add_item_to_project(project_id: int, audio_id: int):
                 (project_id, audio_id)
             )
             # Ensure sound is also present in user_collection
-            conn.execute("INSERT OR IGNORE INTO user_collection (audio_id) VALUES (?)", [audio_id])
+            conn.execute(
+                "INSERT OR IGNORE INTO user_collection (user_id, audio_id) VALUES (?, ?)",
+                (user_id, audio_id)
+            )
         return {"status": "success", "project_id": project_id, "audio_id": audio_id, "assigned": True}
     finally:
         conn.close()
 
 @router.delete("/projects/{project_id}/items/{audio_id}")
-def remove_item_from_project(project_id: int, audio_id: int):
+def remove_item_from_project(project_id: int, audio_id: int, current_user: dict = Depends(get_current_user)):
+    user_id = current_user["id"]
     conn = get_db()
     try:
         with conn:
+            p = conn.execute("SELECT id FROM project_collections WHERE id = ? AND user_id = ?", (project_id, user_id)).fetchone()
+            if not p:
+                raise HTTPException(status_code=404, detail="Project not found")
             conn.execute(
                 "DELETE FROM collection_items WHERE collection_id = ? AND audio_id = ?",
                 (project_id, audio_id)
@@ -371,7 +431,7 @@ def get_categories():
         conn.close()
 
 @router.patch("/audio/{file_id}/name")
-def update_display_name(file_id: int, payload: dict = Body(...)):
+def update_display_name(file_id: int, payload: dict = Body(...), current_admin: dict = Depends(require_admin)):
     new_name = payload.get("display_name", "").strip()
     if not new_name:
         raise HTTPException(status_code=400, detail="display_name cannot be empty")
@@ -387,7 +447,7 @@ def update_display_name(file_id: int, payload: dict = Body(...)):
         conn.close()
 
 @router.post("/audio/{file_id}/ai-listen")
-def ai_listen_audio(file_id: int):
+def ai_listen_audio(file_id: int, current_admin: dict = Depends(require_admin)):
     conn = get_db()
     row = conn.execute("SELECT rel_path, filename FROM audio_files WHERE id = ?", [file_id]).fetchone()
     if not row:

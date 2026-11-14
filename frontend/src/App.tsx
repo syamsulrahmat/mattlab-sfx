@@ -23,6 +23,8 @@ interface AudioItem {
 }
 
 export default function App() {
+  const { user, isLoading: authLoading, logout, isAdmin } = useAuth();
+  const [userMgmtOpen, setUserMgmtOpen] = useState(false);
   const [query, setQuery] = useState('');
   const [category, setCategory] = useState('');
   const [results, setResults] = useState<AudioItem[]>([]);
@@ -158,10 +160,11 @@ export default function App() {
   };
 
   useEffect(() => {
+    if (!user) return;
     fetchCollectionIds();
     fetchProjects();
     fetchProjectAssignments();
-  }, []);
+  }, [user]);
 
   // Fetch search results
   const fetchResults = async (
@@ -393,14 +396,16 @@ export default function App() {
   };
 
   useEffect(() => {
+    if (!user) return;
     fetchResults(query, category, sortBy, sortOrder, collectionOnly, activeProjectId);
-  }, [query, category, sortBy, sortOrder, collectionOnly, activeProjectId]);
+  }, [user, query, category, sortBy, sortOrder, collectionOnly, activeProjectId]);
 
   useEffect(() => {
+    if (!user) return;
     fetchAuxData();
     const interval = setInterval(fetchAuxData, 3000);
     return () => clearInterval(interval);
-  }, [query, category]);
+  }, [user, query, category]);
 
   // Load and play selected track
   const selectTrack = async (item: AudioItem) => {
@@ -687,6 +692,21 @@ export default function App() {
     ? (Math.round(totalLibraryCount / 1000) * 1000).toLocaleString() 
     : '30,000';
 
+  if (authLoading) {
+    return (
+      <div className="flex items-center justify-center h-screen bg-slate-950 text-slate-100">
+        <div className="flex flex-col items-center gap-3">
+          <div className="w-10 h-10 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin" />
+          <p className="text-sm text-slate-400 font-medium">Loading MattLab SFX...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!user) {
+    return <LoginPage />;
+  }
+
   return (
     <div className="flex h-screen bg-slate-950 text-slate-100 font-sans overflow-hidden">
       {/* Mobile Drawer Backdrop */}
@@ -715,14 +735,16 @@ export default function App() {
           </button>
         </div>
 
-        <button
-          onClick={triggerScan}
-          disabled={scanning}
-          className="flex items-center justify-center gap-2 bg-indigo-600/90 hover:bg-indigo-500 text-white rounded-lg py-2 px-3 text-sm font-medium transition mb-4 shadow-sm shrink-0"
-        >
-          <RefreshCw className={`w-4 h-4 ${scanning ? 'animate-spin' : ''}`} />
-          {scanning ? 'Scanning...' : 'Rescan Library'}
-        </button>
+        {isAdmin && (
+          <button
+            onClick={triggerScan}
+            disabled={scanning}
+            className="flex items-center justify-center gap-2 bg-indigo-600/90 hover:bg-indigo-500 text-white rounded-lg py-2 px-3 text-sm font-medium transition mb-4 shadow-sm shrink-0"
+          >
+            <RefreshCw className={`w-4 h-4 ${scanning ? 'animate-spin' : ''}`} />
+            {scanning ? 'Scanning...' : 'Rescan Library'}
+          </button>
+        )}
 
         {/* Main Library Navigation */}
         <div className="space-y-1 mb-4 shrink-0">
@@ -924,53 +946,104 @@ export default function App() {
           ))}
         </div>
 
-        {/* Bottom-Left Corner: AI Background Progress & Status */}
-        <div className="mt-3 pt-3 border-t border-slate-800 shrink-0">
-          <div className="bg-slate-800/80 border border-slate-700/80 rounded-lg p-2.5">
-            <div className="flex items-center justify-between mb-1.5">
-              <span className="text-xs font-semibold text-amber-300 flex items-center gap-1.5">
-                <Brain className="w-3.5 h-3.5" />
-                AI Acoustic Renaming
-              </span>
+        {/* Bottom-Left Corner: AI Background Progress & Status (Admin Only) */}
+        {isAdmin && (
+          <div className="mt-3 pt-3 border-t border-slate-800 shrink-0">
+            <div className="bg-slate-800/80 border border-slate-700/80 rounded-lg p-2.5">
+              <div className="flex items-center justify-between mb-1.5">
+                <span className="text-xs font-semibold text-amber-300 flex items-center gap-1.5">
+                  <Brain className="w-3.5 h-3.5" />
+                  AI Acoustic Renaming
+                </span>
+                <button
+                  onClick={toggleBatchAi}
+                  className={`p-1 rounded text-xs transition ${
+                    aiStatus.is_running
+                      ? 'bg-rose-600/80 hover:bg-rose-500 text-white'
+                      : 'bg-amber-600/80 hover:bg-amber-500 text-white'
+                  }`}
+                  title={aiStatus.is_running ? 'Pause batch acoustic renaming' : 'Start unified acoustic renaming for whole library'}
+                >
+                  {aiStatus.is_running ? <Square className="w-3 h-3" /> : <Play className="w-3 h-3 ml-0.5" />}
+                </button>
+              </div>
+              <div className="text-[11px] text-slate-400 flex items-center justify-between">
+                <span>{aiStatus.is_running ? 'Processing' : 'Unified library:'}</span>
+                <span className="font-mono text-slate-300">
+                  {(aiStatus.processed || 0).toLocaleString()} / {(aiStatus.total || 0).toLocaleString()}
+                </span>
+              </div>
+              {aiStatus.is_running && (
+                <div className="w-full bg-slate-700 h-1.5 rounded-full overflow-hidden mt-1.5">
+                  <div
+                    className="bg-gradient-to-r from-amber-400 to-amber-500 h-full transition-all duration-300"
+                    style={{
+                      width: `${aiStatus.total ? (aiStatus.processed / aiStatus.total) * 100 : 0}%`
+                    }}
+                  />
+                </div>
+              )}
+              <div className="text-[10px] text-slate-400 flex items-center justify-between mt-1">
+                <span>Remaining:</span>
+                <span className="font-mono text-amber-300/90 font-medium">
+                  {(aiStatus.remaining ?? (aiStatus.total ? aiStatus.total - (aiStatus.processed || 0) : 0)).toLocaleString()} files
+                </span>
+              </div>
+              {aiStatus.last_result && (
+                <div className="text-[10px] text-amber-400/80 truncate mt-1 pt-1 border-t border-slate-700/50" title={aiStatus.current_file || ''}>
+                  Latest: {aiStatus.last_result}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* User Profile Card */}
+        <div className="mt-auto pt-3 border-t border-slate-800 shrink-0">
+          <div className="flex items-center justify-between bg-slate-800/60 border border-slate-700/60 rounded-xl p-2.5">
+            <div className="flex items-center gap-2.5 min-w-0">
+              <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-indigo-600 to-violet-500 flex items-center justify-center font-bold text-xs text-white uppercase shrink-0 shadow-sm">
+                {(user.display_name || user.username || 'U')[0]}
+              </div>
+              <div className="min-w-0">
+                <div className="flex items-center gap-1.5">
+                  <span className="text-xs font-semibold text-slate-200 truncate leading-tight">
+                    {user.display_name || user.username}
+                  </span>
+                  <span
+                    className={`text-[9px] uppercase font-bold tracking-wider px-1.5 py-0.5 rounded ${
+                      isAdmin
+                        ? 'bg-amber-500/15 text-amber-300 border border-amber-500/30'
+                        : 'bg-indigo-500/15 text-indigo-300 border border-indigo-500/30'
+                    }`}
+                  >
+                    {user.role}
+                  </span>
+                </div>
+                <div className="text-[10px] text-slate-400 font-mono truncate leading-tight mt-0.5">
+                  @{user.username}
+                </div>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-1 shrink-0">
+              {isAdmin && (
+                <button
+                  onClick={() => setUserMgmtOpen(true)}
+                  className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-700/70 transition"
+                  title="User Management"
+                >
+                  <Users className="w-4 h-4" />
+                </button>
+              )}
               <button
-                onClick={toggleBatchAi}
-                className={`p-1 rounded text-xs transition ${
-                  aiStatus.is_running
-                    ? 'bg-rose-600/80 hover:bg-rose-500 text-white'
-                    : 'bg-amber-600/80 hover:bg-amber-500 text-white'
-                }`}
-                title={aiStatus.is_running ? 'Pause batch acoustic renaming' : 'Start unified acoustic renaming for whole library'}
+                onClick={logout}
+                className="p-1.5 rounded-lg text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 transition"
+                title="Sign out"
               >
-                {aiStatus.is_running ? <Square className="w-3 h-3" /> : <Play className="w-3 h-3 ml-0.5" />}
+                <LogOut className="w-4 h-4" />
               </button>
             </div>
-            <div className="text-[11px] text-slate-400 flex items-center justify-between">
-              <span>{aiStatus.is_running ? 'Processing' : 'Unified library:'}</span>
-              <span className="font-mono text-slate-300">
-                {(aiStatus.processed || 0).toLocaleString()} / {(aiStatus.total || 0).toLocaleString()}
-              </span>
-            </div>
-            {aiStatus.is_running && (
-              <div className="w-full bg-slate-700 h-1.5 rounded-full overflow-hidden mt-1.5">
-                <div
-                  className="bg-gradient-to-r from-amber-400 to-amber-500 h-full transition-all duration-300"
-                  style={{
-                    width: `${aiStatus.total ? (aiStatus.processed / aiStatus.total) * 100 : 0}%`
-                  }}
-                />
-              </div>
-            )}
-            <div className="text-[10px] text-slate-400 flex items-center justify-between mt-1">
-              <span>Remaining:</span>
-              <span className="font-mono text-amber-300/90 font-medium">
-                {(aiStatus.remaining ?? (aiStatus.total ? aiStatus.total - (aiStatus.processed || 0) : 0)).toLocaleString()} files
-              </span>
-            </div>
-            {aiStatus.last_result && (
-              <div className="text-[10px] text-amber-400/80 truncate mt-1 pt-1 border-t border-slate-700/50" title={aiStatus.current_file || ''}>
-                Latest: {aiStatus.last_result}
-              </div>
-            )}
           </div>
         </div>
       </div>
@@ -1240,41 +1313,46 @@ export default function App() {
                           <span
                             onDoubleClick={(e) => {
                               e.stopPropagation();
+                              if (!isAdmin) return;
                               setEditingId(item.id);
                               setEditValue(item.display_name || item.filename);
                             }}
-                            className="font-semibold text-slate-100 hover:text-indigo-300 transition truncate block text-xs sm:text-sm min-w-0 flex-1"
-                            title="Double-click to rename"
+                            className={`font-semibold text-slate-100 ${isAdmin ? 'hover:text-indigo-300' : ''} transition truncate block text-xs sm:text-sm min-w-0 flex-1`}
+                            title={isAdmin ? "Double-click to rename" : undefined}
                           >
                             {item.display_name || item.filename}
                           </span>
                         )}
 
-                        {/* Inline Edit Button */}
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setEditingId(item.id);
-                            setEditValue(item.display_name || item.filename);
-                          }}
-                          className="opacity-40 group-hover:opacity-100 hover:text-indigo-400 text-slate-400 p-1 rounded hover:bg-slate-800 transition shrink-0"
-                          title="Rename sound in app"
-                        >
-                          <Edit2 className="w-3.5 h-3.5" />
-                        </button>
+                        {/* Inline Edit Button (Admin Only) */}
+                        {isAdmin && (
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setEditingId(item.id);
+                              setEditValue(item.display_name || item.filename);
+                            }}
+                            className="opacity-40 group-hover:opacity-100 hover:text-indigo-400 text-slate-400 p-1 rounded hover:bg-slate-800 transition shrink-0"
+                            title="Rename sound in app"
+                          >
+                            <Edit2 className="w-3.5 h-3.5" />
+                          </button>
+                        )}
 
-                        {/* AI Listen Button */}
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            aiListen(item.id);
-                          }}
-                          disabled={isListening}
-                          className="opacity-40 group-hover:opacity-100 hover:text-amber-400 text-slate-400 p-1 rounded hover:bg-slate-800 transition shrink-0"
-                          title="AI Listen: Detect sound type from audio waveform"
-                        >
-                          <Wand2 className={`w-3.5 h-3.5 ${isListening ? 'animate-spin text-amber-400' : ''}`} />
-                        </button>
+                        {/* AI Listen Button (Admin Only) */}
+                        {isAdmin && (
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              aiListen(item.id);
+                            }}
+                            disabled={isListening}
+                            className="opacity-40 group-hover:opacity-100 hover:text-amber-400 text-slate-400 p-1 rounded hover:bg-slate-800 transition shrink-0"
+                            title="AI Listen: Detect sound type from audio waveform"
+                          >
+                            <Wand2 className={`w-3.5 h-3.5 ${isListening ? 'animate-spin text-amber-400' : ''}`} />
+                          </button>
+                        )}
 
                         {/* Collect / Bookmark Button */}
                         <button
@@ -1434,6 +1512,7 @@ export default function App() {
           onToggleCollect={toggleCollect}
           onOpenProjects={(item) => setAssignModalSound(item)}
           assignedProjectsCount={currentItem ? (projectAssignments[currentItem.id] || []).length : 0}
+          isAdmin={isAdmin}
         />
 
         {/* Project Assignment Modal */}
@@ -1467,6 +1546,7 @@ export default function App() {
             x={contextMenu.x}
             y={contextMenu.y}
             item={contextMenu.item}
+            isAdmin={isAdmin}
             isSelected={selectedId === contextMenu.item.id}
             isPlaying={isPlaying && selectedId === contextMenu.item.id}
             isCollected={collectionIds.has(contextMenu.item.id)}
@@ -1489,6 +1569,15 @@ export default function App() {
               setEditingId(item.id);
               setEditValue(item.display_name || item.filename);
             }}
+          />
+        )}
+
+        {/* User Management Modal (Admin Only) */}
+        {isAdmin && (
+          <UserManagementModal
+            isOpen={userMgmtOpen}
+            onClose={() => setUserMgmtOpen(false)}
+            onToast={addToast}
           />
         )}
 

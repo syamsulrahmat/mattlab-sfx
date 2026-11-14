@@ -20,6 +20,7 @@ export interface ContextMenuProps {
   isPlaying: boolean;
   isCollected: boolean;
   assignedProjectsCount: number;
+  isAdmin?: boolean;
   onClose: () => void;
   onPlayPause: (item: AudioItem) => void;
   onToggleCollect: (item: AudioItem) => void;
@@ -39,6 +40,7 @@ export const ContextMenu: React.FC<ContextMenuProps> = ({
   isPlaying,
   isCollected,
   assignedProjectsCount,
+  isAdmin = false,
   onClose,
   onPlayPause,
   onToggleCollect,
@@ -227,34 +229,36 @@ export const ContextMenu: React.FC<ContextMenuProps> = ({
         </button>
       </div>
 
-      {/* Sound Editing & AI */}
-      <div className="py-1">
-        <button
-          onClick={() => {
-            onAiListen(item);
-            onClose();
-          }}
-          className="w-full flex items-center justify-between px-3 py-1.5 hover:bg-slate-800 hover:text-amber-300 transition text-left cursor-pointer"
-        >
-          <span className="flex items-center gap-2">
-            <Wand2 className="w-3.5 h-3.5 text-amber-400" />
-            <span>AI Acoustic Listen</span>
-          </span>
-        </button>
+      {/* Sound Editing & AI (Admin Only) */}
+      {isAdmin && (
+        <div className="py-1">
+          <button
+            onClick={() => {
+              onAiListen(item);
+              onClose();
+            }}
+            className="w-full flex items-center justify-between px-3 py-1.5 hover:bg-slate-800 hover:text-amber-300 transition text-left cursor-pointer"
+          >
+            <span className="flex items-center gap-2">
+              <Wand2 className="w-3.5 h-3.5 text-amber-400" />
+              <span>AI Acoustic Listen</span>
+            </span>
+          </button>
 
-        <button
-          onClick={() => {
-            onRename(item);
-            onClose();
-          }}
-          className="w-full flex items-center justify-between px-3 py-1.5 hover:bg-slate-800 hover:text-indigo-300 transition text-left cursor-pointer"
-        >
-          <span className="flex items-center gap-2">
-            <Edit2 className="w-3.5 h-3.5 text-indigo-400" />
-            <span>Rename Sound in App</span>
-          </span>
-        </button>
-      </div>
+          <button
+            onClick={() => {
+              onRename(item);
+              onClose();
+            }}
+            className="w-full flex items-center justify-between px-3 py-1.5 hover:bg-slate-800 hover:text-indigo-300 transition text-left cursor-pointer"
+          >
+            <span className="flex items-center gap-2">
+              <Edit2 className="w-3.5 h-3.5 text-indigo-400" />
+              <span>Rename Sound in App</span>
+            </span>
+          </button>
+        </div>
+      )}
     </div>
   );
 };

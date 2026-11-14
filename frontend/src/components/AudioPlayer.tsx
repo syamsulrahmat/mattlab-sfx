@@ -38,6 +38,7 @@ interface AudioPlayerProps {
   onToggleCollect?: (item: AudioItem) => void;
   onOpenProjects?: (item: AudioItem) => void;
   assignedProjectsCount?: number;
+  isAdmin?: boolean;
 }
 
 export const AudioPlayer: React.FC<AudioPlayerProps> = ({
@@ -62,6 +63,7 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({
   onToggleCollect,
   onOpenProjects,
   assignedProjectsCount = 0,
+  isAdmin = false,
 }) => {
   const formatTime = (seconds: number) => {
     if (!seconds || isNaN(seconds)) return '00:00.0';
@@ -186,15 +188,18 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({
                 </button>
               )}
 
-              <button
-                onClick={() => onAiListen(currentItem.id)}
-                disabled={listeningId === currentItem.id}
-                className="flex items-center gap-1.5 text-xs bg-slate-800 hover:bg-slate-700 text-amber-300 p-1.5 sm:px-2.5 sm:py-1.5 rounded-lg border border-slate-700 transition"
-                title="Detect sound type with AI"
-              >
-                <Wand2 className={`w-3.5 h-3.5 ${listeningId === currentItem.id ? 'animate-spin' : ''}`} />
-                <span className="hidden md:inline">AI Listen</span>
-              </button>
+              {/* AI Listen Button (Admin Only) */}
+              {isAdmin && (
+                <button
+                  onClick={() => onAiListen(currentItem.id)}
+                  disabled={listeningId === currentItem.id}
+                  className="flex items-center gap-1.5 text-xs bg-slate-800 hover:bg-slate-700 text-amber-300 p-1.5 sm:px-2.5 sm:py-1.5 rounded-lg border border-slate-700 transition"
+                  title="Detect sound type with AI"
+                >
+                  <Wand2 className={`w-3.5 h-3.5 ${listeningId === currentItem.id ? 'animate-spin' : ''}`} />
+                  <span className="hidden md:inline">AI Listen</span>
+                </button>
+              )}
 
               <button
                 onClick={() => onCopyExplorer(currentItem)}

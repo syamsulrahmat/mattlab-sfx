@@ -102,26 +102,57 @@ def init_db():
         conn.execute("CREATE INDEX IF NOT EXISTS idx_audio_category ON audio_files(category);")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_audio_pack ON audio_files(pack);")
 
+        # Users and Roles table
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS users (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                username TEXT UNIQUE NOT NULL COLLATE NOCASE,
+                password_hash TEXT NOT NULL,
+                role TEXT NOT NULL DEFAULT 'user',
+                display_name TEXT DEFAULT '',
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                last_login TIMESTAMP
+            );
+        """)
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_users_username ON users(username);")
+
         # User personal collection table
         conn.execute("""
             CREATE TABLE IF NOT EXISTS user_collection (
-                audio_id INTEGER PRIMARY KEY,
+                audio_id INTEGER NOT NULL,
+                user_id INTEGER DEFAULT 1,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY(audio_id) REFERENCES audio_files(id) ON DELETE CASCADE
+                PRIMARY KEY (user_id, audio_id),
+                FOREIGN KEY(audio_id) REFERENCES audio_files(id) ON DELETE CASCADE,
+                FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
             );
         """)
         conn.execute("CREATE INDEX IF NOT EXISTS idx_user_collection_created ON user_collection(created_at);")
+
+        # Migration for user_id in user_collection if table existed prior
+        cols_uc = [c[1] for c in conn.execute("PRAGMA table_info(user_collection)").fetchall()]
+        if "user_id" not in cols_uc:
+            conn.execute("ALTER TABLE user_collection ADD COLUMN user_id INTEGER DEFAULT 1;")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_user_collection_user ON user_collection(user_id);")
 
         # Project collections table
         conn.execute("""
             CREATE TABLE IF NOT EXISTS project_collections (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-                name TEXT UNIQUE NOT NULL,
+                user_id INTEGER DEFAULT 1,
+                name TEXT NOT NULL,
                 description TEXT DEFAULT '',
                 color TEXT DEFAULT '#f59e0b',
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
             );
         """)
+
+        # Migration for user_id in project_collections if table existed prior
+        cols_pc = [c[1] for c in conn.execute("PRAGMA table_info(project_collections)").fetchall()]
+        if "user_id" not in cols_pc:
+            conn.execute("ALTER TABLE project_collections ADD COLUMN user_id INTEGER DEFAULT 1;")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_project_collections_user ON project_collections(user_id);")
 
         # Items assigned to project collections
         conn.execute("""
