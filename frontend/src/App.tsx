@@ -695,11 +695,30 @@ export default function App() {
     }
   };
 
+  const isAiComplete = aiStatus.total > 0 && (aiStatus.remaining ?? (aiStatus.total - (aiStatus.processed || 0))) === 0;
+
   const toggleBatchAi = async () => {
+    if (isAiComplete && !aiStatus.is_running) {
+      addToast({
+        type: 'info',
+        title: 'Library 100% Classified',
+        body: `All ${(aiStatus.total || 0).toLocaleString()} sounds are already analyzed. Scan new files to process more.`,
+      });
+      return;
+    }
     if (aiStatus.is_running) {
       await fetch('/api/ai/stop', { method: 'POST' });
+      addToast({
+        type: 'info',
+        title: 'AI Acoustic Renaming Paused',
+      });
     } else {
       await fetch('/api/ai/start', { method: 'POST' });
+      addToast({
+        type: 'success',
+        title: 'AI Acoustic Renaming Started',
+        body: 'Analyzing library sounds in the background.',
+      });
     }
     fetchAuxData();
   };
@@ -986,41 +1005,55 @@ export default function App() {
                   <Brain className="w-3.5 h-3.5" />
                   AI Acoustic Renaming
                 </span>
-                <button
-                  onClick={toggleBatchAi}
-                  className={`p-1 rounded text-xs transition ${
-                    aiStatus.is_running
-                      ? 'bg-rose-600/80 hover:bg-rose-500 text-white'
-                      : 'bg-amber-600/80 hover:bg-amber-500 text-white'
-                  }`}
-                  title={aiStatus.is_running ? 'Pause batch acoustic renaming' : 'Start unified acoustic renaming for whole library'}
-                >
-                  {aiStatus.is_running ? <Square className="w-3 h-3" /> : <Play className="w-3 h-3 ml-0.5" />}
-                </button>
+                {isAiComplete ? (
+                  <button
+                    onClick={toggleBatchAi}
+                    className="p-1 rounded bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 text-xs flex items-center gap-1 hover:bg-emerald-500/30 transition cursor-pointer"
+                    title="Library 100% acoustically classified"
+                  >
+                    <Check className="w-3 h-3" />
+                  </button>
+                ) : (
+                  <button
+                    onClick={toggleBatchAi}
+                    className={`p-1 rounded text-xs transition cursor-pointer ${
+                      aiStatus.is_running
+                        ? 'bg-rose-600/80 hover:bg-rose-500 text-white'
+                        : 'bg-amber-600/80 hover:bg-amber-500 text-white'
+                    }`}
+                    title={aiStatus.is_running ? 'Pause batch acoustic renaming' : 'Start unified acoustic renaming for whole library'}
+                  >
+                    {aiStatus.is_running ? <Square className="w-3 h-3" /> : <Play className="w-3 h-3 ml-0.5" />}
+                  </button>
+                )}
               </div>
               <div className="text-[11px] text-slate-400 flex items-center justify-between">
-                <span>{aiStatus.is_running ? 'Processing' : 'Unified library:'}</span>
+                <span>{aiStatus.is_running ? 'Processing' : isAiComplete ? 'Library status:' : 'Unified library:'}</span>
                 <span className="font-mono text-slate-300">
                   {(aiStatus.processed || 0).toLocaleString()} / {(aiStatus.total || 0).toLocaleString()}
                 </span>
               </div>
-              {aiStatus.is_running && (
+              {(aiStatus.is_running || isAiComplete) && (
                 <div className="w-full bg-slate-700 h-1.5 rounded-full overflow-hidden mt-1.5">
                   <div
-                    className="bg-gradient-to-r from-amber-400 to-amber-500 h-full transition-all duration-300"
+                    className={`h-full transition-all duration-300 ${
+                      isAiComplete
+                        ? 'bg-emerald-500'
+                        : 'bg-gradient-to-r from-amber-400 to-amber-500'
+                    }`}
                     style={{
-                      width: `${aiStatus.total ? (aiStatus.processed / aiStatus.total) * 100 : 0}%`
+                      width: isAiComplete ? '100%' : `${aiStatus.total ? (aiStatus.processed / aiStatus.total) * 100 : 0}%`
                     }}
                   />
                 </div>
               )}
               <div className="text-[10px] text-slate-400 flex items-center justify-between mt-1">
                 <span>Remaining:</span>
-                <span className="font-mono text-amber-300/90 font-medium">
-                  {(aiStatus.remaining ?? (aiStatus.total ? aiStatus.total - (aiStatus.processed || 0) : 0)).toLocaleString()} files
+                <span className={`font-mono font-medium ${isAiComplete ? 'text-emerald-400' : 'text-amber-300/90'}`}>
+                  {isAiComplete ? '0 files (100% complete)' : `${(aiStatus.remaining ?? (aiStatus.total ? aiStatus.total - (aiStatus.processed || 0) : 0)).toLocaleString()} files`}
                 </span>
               </div>
-              {aiStatus.last_result && (
+              {aiStatus.last_result && !isAiComplete && (
                 <div className="text-[10px] text-amber-400/80 truncate mt-1 pt-1 border-t border-slate-700/50" title={aiStatus.current_file || ''}>
                   Latest: {aiStatus.last_result}
                 </div>
