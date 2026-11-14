@@ -176,14 +176,14 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({
                   onClick={() => onOpenProjects(currentItem)}
                   className={`flex items-center gap-1.5 text-xs p-1.5 sm:px-2.5 sm:py-1.5 rounded-lg border transition cursor-pointer ${
                     assignedProjectsCount > 0
-                      ? 'bg-amber-950/40 border-amber-500/60 text-amber-200'
-                      : 'bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-amber-300 border-slate-700'
+                      ? 'bg-orange-950/50 border-orange-500/60 text-orange-300'
+                      : 'bg-orange-950/20 hover:bg-orange-600/30 text-orange-400 hover:text-orange-200 border-orange-800/40 hover:border-orange-500/60'
                   }`}
-                  title="Assign sound to project collections"
+                  title="Assign sound to project collections [Hotkey: P]"
                 >
-                  <FolderPlus className="w-3.5 h-3.5 text-amber-400" />
+                  <FolderPlus className="w-3.5 h-3.5 text-orange-400" />
                   <span className="hidden md:inline">
-                    {assignedProjectsCount > 0 ? `Projects (${assignedProjectsCount})` : 'Projects'}
+                    {assignedProjectsCount > 0 ? `Projects (${assignedProjectsCount})` : 'Projects [P]'}
                   </span>
                 </button>
               )}
@@ -193,38 +193,41 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({
                 <button
                   onClick={() => onAiListen(currentItem.id)}
                   disabled={listeningId === currentItem.id}
-                  className="flex items-center gap-1.5 text-xs bg-slate-800 hover:bg-slate-700 text-amber-300 p-1.5 sm:px-2.5 sm:py-1.5 rounded-lg border border-slate-700 transition"
+                  className="flex items-center gap-1.5 text-xs bg-fuchsia-950/40 hover:bg-fuchsia-600/30 text-fuchsia-300 hover:text-fuchsia-100 p-1.5 sm:px-2.5 sm:py-1.5 rounded-lg border border-fuchsia-800/40 hover:border-fuchsia-500/60 transition cursor-pointer"
                   title="Detect sound type with AI"
                 >
-                  <Wand2 className={`w-3.5 h-3.5 ${listeningId === currentItem.id ? 'animate-spin' : ''}`} />
+                  <Wand2 className={`w-3.5 h-3.5 ${listeningId === currentItem.id ? 'animate-spin text-fuchsia-400' : 'text-fuchsia-400'}`} />
                   <span className="hidden md:inline">AI Listen</span>
                 </button>
               )}
 
+              {/* Reveal in Explorer Button (Sky) */}
               <button
                 onClick={() => onCopyExplorer(currentItem)}
-                className="flex items-center gap-1.5 text-xs bg-indigo-900/40 hover:bg-indigo-600/60 text-indigo-200 p-1.5 sm:px-2.5 sm:py-1.5 rounded-lg border border-indigo-700/40 transition"
+                className="flex items-center gap-1.5 text-xs bg-sky-950/40 hover:bg-sky-600/30 text-sky-300 hover:text-sky-100 p-1.5 sm:px-2.5 sm:py-1.5 rounded-lg border border-sky-800/40 hover:border-sky-500/60 transition cursor-pointer"
                 title="Reveal in Windows Explorer [Hotkey: E]"
               >
-                {revealedId === currentItem.id ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <FolderOpen className="w-3.5 h-3.5" />}
+                {revealedId === currentItem.id ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <FolderOpen className="w-3.5 h-3.5 text-sky-400" />}
                 <span className="hidden md:inline">Reveal [E]</span>
               </button>
 
+              {/* Copy SMB Button (Emerald) */}
               <button
                 onClick={() => onCopySMB(currentItem)}
-                className="flex items-center gap-1.5 text-xs bg-slate-800 hover:bg-slate-700 text-slate-300 p-1.5 sm:px-2.5 sm:py-1.5 rounded-lg border border-slate-700 transition"
+                className="flex items-center gap-1.5 text-xs bg-emerald-950/40 hover:bg-emerald-600/30 text-emerald-300 hover:text-emerald-100 p-1.5 sm:px-2.5 sm:py-1.5 rounded-lg border border-emerald-800/40 hover:border-emerald-500/60 transition cursor-pointer"
                 title="Copy Windows SMB network path [Hotkey: C]"
               >
-                {copiedId === currentItem.id ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                {copiedId === currentItem.id ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5 text-emerald-400" />}
                 <span className="hidden md:inline">Copy [C]</span>
               </button>
 
+              {/* Download Button (Violet) */}
               <button
                 onClick={() => onDownload(currentItem)}
-                className="flex items-center gap-1.5 text-xs bg-indigo-950/60 hover:bg-indigo-600/60 text-indigo-200 hover:text-white p-1.5 sm:px-2.5 sm:py-1.5 rounded-lg border border-indigo-700/50 transition cursor-pointer"
+                className="flex items-center gap-1.5 text-xs bg-violet-950/40 hover:bg-violet-600/30 text-violet-300 hover:text-violet-100 p-1.5 sm:px-2.5 sm:py-1.5 rounded-lg border border-violet-800/40 hover:border-violet-500/60 transition cursor-pointer"
                 title="Download original audio file directly in browser [Hotkey: D]"
               >
-                <Download className="w-3.5 h-3.5" />
+                <Download className="w-3.5 h-3.5 text-violet-400" />
                 <span className="hidden md:inline">Download [D]</span>
               </button>
             </div>

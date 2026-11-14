@@ -164,10 +164,10 @@ export const ContextMenu: React.FC<ContextMenuProps> = ({
             onOpenProjects(item);
             onClose();
           }}
-          className="w-full flex items-center justify-between px-3 py-1.5 hover:bg-amber-600/20 hover:text-amber-200 transition text-left cursor-pointer group"
+          className="w-full flex items-center justify-between px-3 py-1.5 hover:bg-orange-600/20 hover:text-orange-200 transition text-left cursor-pointer group"
         >
           <span className="flex items-center gap-2">
-            <FolderPlus className="w-3.5 h-3.5 text-amber-400" />
+            <FolderPlus className="w-3.5 h-3.5 text-orange-400" />
             <span>
               {assignedProjectsCount > 0 ? `Projects (${assignedProjectsCount})` : 'Assign to Projects...'}
             </span>
@@ -185,10 +185,10 @@ export const ContextMenu: React.FC<ContextMenuProps> = ({
             onDownload(item);
             onClose();
           }}
-          className="w-full flex items-center justify-between px-3 py-1.5 hover:bg-slate-800 hover:text-white transition text-left cursor-pointer"
+          className="w-full flex items-center justify-between px-3 py-1.5 hover:bg-violet-600/20 hover:text-violet-200 transition text-left cursor-pointer group"
         >
           <span className="flex items-center gap-2">
-            <Download className="w-3.5 h-3.5 text-indigo-300" />
+            <Download className="w-3.5 h-3.5 text-violet-400" />
             <span>Download Audio</span>
           </span>
           <kbd className="text-[10px] text-slate-500 font-mono bg-slate-800/80 px-1.5 py-0.2 rounded border border-slate-700/60">
@@ -201,10 +201,10 @@ export const ContextMenu: React.FC<ContextMenuProps> = ({
             onCopyExplorer(item);
             onClose();
           }}
-          className="w-full flex items-center justify-between px-3 py-1.5 hover:bg-slate-800 hover:text-white transition text-left cursor-pointer"
+          className="w-full flex items-center justify-between px-3 py-1.5 hover:bg-sky-600/20 hover:text-sky-200 transition text-left cursor-pointer group"
         >
           <span className="flex items-center gap-2">
-            <FolderOpen className="w-3.5 h-3.5 text-indigo-300" />
+            <FolderOpen className="w-3.5 h-3.5 text-sky-400" />
             <span>Reveal in Explorer</span>
           </span>
           <kbd className="text-[10px] text-slate-500 font-mono bg-slate-800/80 px-1.5 py-0.2 rounded border border-slate-700/60">
@@ -217,10 +217,10 @@ export const ContextMenu: React.FC<ContextMenuProps> = ({
             onCopySMB(item);
             onClose();
           }}
-          className="w-full flex items-center justify-between px-3 py-1.5 hover:bg-slate-800 hover:text-white transition text-left cursor-pointer"
+          className="w-full flex items-center justify-between px-3 py-1.5 hover:bg-emerald-600/20 hover:text-emerald-200 transition text-left cursor-pointer group"
         >
           <span className="flex items-center gap-2">
-            <Copy className="w-3.5 h-3.5 text-slate-400" />
+            <Copy className="w-3.5 h-3.5 text-emerald-400" />
             <span>Copy Raw SMB Path</span>
           </span>
           <kbd className="text-[10px] text-slate-500 font-mono bg-slate-800/80 px-1.5 py-0.2 rounded border border-slate-700/60">
@@ -237,10 +237,10 @@ export const ContextMenu: React.FC<ContextMenuProps> = ({
               onAiListen(item);
               onClose();
             }}
-            className="w-full flex items-center justify-between px-3 py-1.5 hover:bg-slate-800 hover:text-amber-300 transition text-left cursor-pointer"
+            className="w-full flex items-center justify-between px-3 py-1.5 hover:bg-fuchsia-600/20 hover:text-fuchsia-200 transition text-left cursor-pointer group"
           >
             <span className="flex items-center gap-2">
-              <Wand2 className="w-3.5 h-3.5 text-amber-400" />
+              <Wand2 className="w-3.5 h-3.5 text-fuchsia-400" />
               <span>AI Acoustic Listen</span>
             </span>
           </button>

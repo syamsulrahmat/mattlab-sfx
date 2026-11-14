@@ -1447,10 +1447,10 @@ export default function App() {
                               aiListen(item.id);
                             }}
                             disabled={isListening}
-                            className="opacity-40 group-hover:opacity-100 hover:text-amber-400 text-slate-400 p-1 rounded hover:bg-slate-800 transition shrink-0"
+                            className="opacity-40 group-hover:opacity-100 hover:text-fuchsia-400 text-slate-400 p-1 rounded hover:bg-fuchsia-950/40 transition shrink-0"
                             title="AI Listen: Detect sound type from audio waveform"
                           >
-                            <Wand2 className={`w-3.5 h-3.5 ${isListening ? 'animate-spin text-amber-400' : ''}`} />
+                            <Wand2 className={`w-3.5 h-3.5 ${isListening ? 'animate-spin text-fuchsia-400' : ''}`} />
                           </button>
                         )}
 
@@ -1478,8 +1478,8 @@ export default function App() {
                           }}
                           className={`p-1 rounded transition shrink-0 cursor-pointer ${
                             (projectAssignments[item.id] || []).length > 0
-                              ? 'text-amber-400 hover:text-amber-300'
-                              : 'opacity-30 group-hover:opacity-100 hover:text-amber-400 text-slate-400'
+                              ? 'text-orange-400 hover:text-orange-300'
+                              : 'opacity-30 group-hover:opacity-100 hover:text-orange-400 text-slate-400'
                           }`}
                           title={`Organize into Projects [P]${
                             (projectAssignments[item.id] || []).length > 0
@@ -1509,38 +1509,38 @@ export default function App() {
                     <td className="py-2.5 px-3 text-slate-400 hidden lg:table-cell truncate">{item.sample_rate ? `${item.sample_rate} Hz` : '-'}</td>
                     <td className="py-2.5 px-2 sm:px-4 text-right shrink-0">
                       <div className="flex items-center justify-end gap-1 sm:gap-1.5">
-                        {/* Reveal & Select in Explorer (Win+R command / E hotkey) */}
+                        {/* Reveal & Select in Explorer (Sky) */}
                         <button
                           onClick={(e) => {
                             e.stopPropagation();
                             copyExplorer(item);
                           }}
                           title={`Reveal & Select in Windows Explorer [E]:\nexplorer.exe /select,"${item.smb_path}"\n(Press Win+R -> Ctrl+V -> Enter)`}
-                          className="p-1.5 rounded bg-indigo-900/30 hover:bg-indigo-600/50 text-indigo-300 hover:text-white transition"
+                          className="p-1.5 rounded-lg bg-sky-950/40 hover:bg-sky-600/30 text-sky-400 hover:text-sky-200 border border-sky-800/50 hover:border-sky-500/70 transition cursor-pointer shadow-sm"
                         >
                           {revealedId === item.id ? <Check className="w-4 h-4 text-emerald-400" /> : <FolderOpen className="w-4 h-4" />}
                         </button>
 
-                        {/* Copy Raw SMB Path */}
+                        {/* Copy Raw SMB Path (Emerald) */}
                         <button
                           onClick={(e) => {
                             e.stopPropagation();
                             copySMB(item);
                           }}
                           title={`Copy Raw SMB Path [C]:\n${item.smb_path}`}
-                          className="p-1.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white transition"
+                          className="p-1.5 rounded-lg bg-emerald-950/40 hover:bg-emerald-600/30 text-emerald-400 hover:text-emerald-200 border border-emerald-800/50 hover:border-emerald-500/70 transition cursor-pointer shadow-sm"
                         >
                           {copiedId === item.id ? <Check className="w-4 h-4 text-emerald-400" /> : <Copy className="w-4 h-4" />}
                         </button>
 
-                        {/* Direct Browser Download */}
+                        {/* Direct Browser Download (Violet) */}
                         <button
                           onClick={(e) => {
                             e.stopPropagation();
                             downloadAudio(item);
                           }}
                           title={`Download audio file to browser [Hotkey: D]:\n${item.filename}`}
-                          className="p-1.5 rounded bg-slate-800 hover:bg-slate-700 text-indigo-300 hover:text-white transition cursor-pointer"
+                          className="p-1.5 rounded-lg bg-violet-950/40 hover:bg-violet-600/30 text-violet-300 hover:text-violet-100 border border-violet-800/50 hover:border-violet-500/70 transition cursor-pointer shadow-sm"
                         >
                           <Download className="w-4 h-4" />
                         </button>
