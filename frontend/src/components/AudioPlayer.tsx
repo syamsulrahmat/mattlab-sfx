@@ -122,9 +122,7 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({
             </div>
             <div className="text-[10px] sm:text-xs text-slate-400 truncate leading-snug mt-0.5 flex items-center gap-2">
               <span className="truncate">
-                {currentItem
-                  ? `${currentItem.filename} • [I/O] Mark Trim • [X] Clear Trim`
-                  : 'Shortcuts: [Space] Play • [I/O] Mark Trim • [X] Clear • [D] Download • [↑/↓] Navigate • [B] Collect • [L] Loop'}
+                {currentItem ? currentItem.rel_path || currentItem.filename : 'Ready to audition • Select any sound to preview'}
               </span>
             </div>
           </div>
