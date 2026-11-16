@@ -54,3 +54,21 @@ html, body {
   -ms-overflow-style: none;
   scrollbar-width: none;
 }
+
+/* WaveSurfer Trim Selection Regions */
+[part~="region"] {
+  border-left: 2px solid #8b5cf6 !important;
+  border-right: 2px solid #8b5cf6 !important;
+  box-sizing: border-box;
+}
+
+[part~="region-handle"] {
+  width: 6px !important;
+  background-color: rgba(139, 92, 246, 0.75) !important;
+  transition: background-color 0.15s ease;
+  z-index: 10;
+}
+
+[part~="region-handle"]:hover {
+  background-color: #a78bfa !important;
+}
