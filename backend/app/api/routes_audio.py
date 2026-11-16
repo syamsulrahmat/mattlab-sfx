@@ -3,8 +3,9 @@ import json
 import hashlib
 import subprocess
 import tempfile
+import shutil
 from typing import Optional
-from fastapi import APIRouter, HTTPException, Request, BackgroundTasks, Query
+from fastapi import APIRouter, HTTPException, Request, BackgroundTasks, Query, UploadFile, File
 from fastapi.responses import FileResponse, Response
 from app.db.database import get_db
 from app.scanner.peak_generator import generate_peaks
@@ -178,3 +179,98 @@ def get_peaks(file_id: int):
                 return json.load(f)
 
     return [0.0] * 128
+
+@router.post("/studio/mux-video")
+async def mux_studio_video(
+    background_tasks: BackgroundTasks,
+    video: UploadFile = File(...),
+    audio: UploadFile = File(...)
+):
+    """
+    Lossless video multiplexing: merges client-designed audio mixdown WAV
+    with user's original video file using FFmpeg stream copy.
+    """
+    temp_dir = tempfile.gettempdir()
+    
+    # Save input video to temp
+    video_ext = os.path.splitext(video.filename or "")[1] or ".mp4"
+    temp_video = tempfile.NamedTemporaryFile(dir=temp_dir, suffix=video_ext, delete=False)
+    temp_video_path = temp_video.name
+    temp_video.close()
+    
+    # Save input audio to temp
+    temp_audio = tempfile.NamedTemporaryFile(dir=temp_dir, suffix=".wav", delete=False)
+    temp_audio_path = temp_audio.name
+    temp_audio.close()
+    
+    # Output file
+    temp_out = tempfile.NamedTemporaryFile(dir=temp_dir, suffix=".mp4", delete=False)
+    temp_out_path = temp_out.name
+    temp_out.close()
+    
+    try:
+        with open(temp_video_path, "wb") as f:
+            shutil.copyfileobj(video.file, f)
+            
+        with open(temp_audio_path, "wb") as f:
+            shutil.copyfileobj(audio.file, f)
+            
+        # Fast multiplex: copy video stream without re-encoding, encode audio as high-bitrate AAC
+        cmd = [
+            "ffmpeg", "-v", "error", "-y",
+            "-i", temp_video_path,
+            "-i", temp_audio_path,
+            "-map", "0:v:0",
+            "-map", "1:a:0",
+            "-c:v", "copy",
+            "-c:a", "aac",
+            "-b:a", "320k",
+            "-shortest",
+            temp_out_path
+        ]
+        res = subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, timeout=60)
+        
+        # Fallback if container stream copy fails on codecs/format
+        if res.returncode != 0 or not os.path.exists(temp_out_path) or os.path.getsize(temp_out_path) == 0:
+            cmd_fallback = [
+                "ffmpeg", "-v", "error", "-y",
+                "-i", temp_video_path,
+                "-i", temp_audio_path,
+                "-map", "0:v:0",
+                "-map", "1:a:0",
+                "-c:v", "libx264",
+                "-preset", "ultrafast",
+                "-crf", "20",
+                "-c:a", "aac",
+                "-b:a", "320k",
+                "-shortest",
+                temp_out_path
+            ]
+            subprocess.run(cmd_fallback, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=90)
+            
+        if not os.path.exists(temp_out_path) or os.path.getsize(temp_out_path) == 0:
+            cleanup_file(temp_video_path)
+            cleanup_file(temp_audio_path)
+            cleanup_file(temp_out_path)
+            raise HTTPException(status_code=500, detail="Failed to multiplex video and audio")
+            
+        background_tasks.add_task(cleanup_file, temp_video_path)
+        background_tasks.add_task(cleanup_file, temp_audio_path)
+        background_tasks.add_task(cleanup_file, temp_out_path)
+        
+        base_name = os.path.splitext(video.filename or "video")[0]
+        output_filename = f"{base_name}_sound_designed.mp4"
+        
+        return FileResponse(
+            path=temp_out_path,
+            filename=output_filename,
+            media_type="video/mp4",
+            background=background_tasks
+        )
+    except Exception as e:
+        cleanup_file(temp_video_path)
+        cleanup_file(temp_audio_path)
+        cleanup_file(temp_out_path)
+        if isinstance(e, HTTPException):
+            raise e
+        raise HTTPException(status_code=500, detail=f"Error multiplexing video: {e}")
