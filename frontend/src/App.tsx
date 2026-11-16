@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import WaveSurfer from 'wavesurfer.js';
 import RegionsPlugin from 'wavesurfer.js/dist/plugins/regions.esm.js';
-import { Play, Pause, Search, Volume2, Copy, Check, RefreshCw, Tag, X, Edit2, Wand2, Brain, Square, FolderOpen, Menu, ArrowUpDown, ArrowUp, ArrowDown, Download, Bookmark, FolderPlus, Trash2, Plus, Folder, ChevronDown, ChevronRight, AlertCircle, CheckCircle2, Info, Users, LogOut, Loader2, Scissors } from 'lucide-react';
+import { Play, Pause, Search, Volume2, Copy, Check, RefreshCw, Tag, X, Edit2, Wand2, Brain, Square, FolderOpen, Menu, ArrowUpDown, ArrowUp, ArrowDown, Download, Bookmark, FolderPlus, Trash2, Plus, Folder, ChevronDown, ChevronRight, AlertCircle, CheckCircle2, Info, Users, LogOut, Loader2, Scissors, Settings } from 'lucide-react';
 import { Logo } from './components/Logo';
 import { AudioPlayer } from './components/AudioPlayer';
 import { ProjectAssignModal, ProjectCollection } from './components/ProjectAssignModal';
@@ -11,6 +11,7 @@ import { useAuth } from './context/AuthContext';
 import { LoginPage } from './components/LoginPage';
 import { UserManagementModal } from './components/UserManagementModal';
 import { ShortcutFooter } from './components/ShortcutFooter';
+import { SettingsModal, UserSettings, DEFAULT_SETTINGS } from './components/SettingsModal';
 
 interface AudioItem {
   id: number;
@@ -113,6 +114,38 @@ export default function App() {
   const trimRegionRef = useRef<{ start: number; end: number } | null>(null);
   trimRegionRef.current = trimRegion;
   const [isSearching, setIsSearching] = useState(false);
+  const [settings, setSettings] = useState<UserSettings>(() => {
+    try {
+      const saved = localStorage.getItem('mattlab_sfx_settings');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        return {
+          nudgeStep: Number(parsed.nudgeStep) || DEFAULT_SETTINGS.nudgeStep,
+          fastJumpStep: Number(parsed.fastJumpStep) || DEFAULT_SETTINGS.fastJumpStep,
+        };
+      }
+    } catch {
+      // ignore
+    }
+    return DEFAULT_SETTINGS;
+  });
+  const settingsRef = useRef<UserSettings>(settings);
+  settingsRef.current = settings;
+  const [settingsOpen, setSettingsOpen] = useState(false);
+
+  const handleSaveSettings = (newSettings: UserSettings) => {
+    setSettings(newSettings);
+    try {
+      localStorage.setItem('mattlab_sfx_settings', JSON.stringify(newSettings));
+    } catch {
+      // ignore
+    }
+    addToast({
+      type: 'success',
+      title: 'Settings Saved',
+      body: `Nudge: ${newSettings.nudgeStep}s • Fast Jump: ${newSettings.fastJumpStep}s`,
+    });
+  };
 
   // WaveSurfer initialization helper
   const initWaveSurfer = (container: HTMLElement) => {
@@ -769,6 +802,7 @@ export default function App() {
         assignModalSound !== null ||
         confirmDialog !== null ||
         contextMenu !== null ||
+        settingsOpen ||
         newProjectInline;
 
       if (!isInput && (e.key === '/' || ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k'))) {
@@ -781,7 +815,9 @@ export default function App() {
       if (isInput) {
         if (e.key === 'Escape') {
           e.preventDefault();
-          if (editingId !== null) {
+          if (settingsOpen) {
+            setSettingsOpen(false);
+          } else if (editingId !== null) {
             setEditingId(null);
           } else {
             searchInputRef.current?.blur();
@@ -796,7 +832,29 @@ export default function App() {
         return;
       }
 
-      if (e.code === 'Space') {
+      if (e.code === 'ArrowLeft' || e.code === 'ArrowRight') {
+        const ws = wavesurfer.current;
+        if (!ws) return;
+        e.preventDefault();
+
+        const current = ws.getCurrentTime() || 0;
+        const dur = ws.getDuration() || duration || 0;
+        const trim = trimRegionRef.current;
+
+        const step = e.shiftKey
+          ? (settingsRef.current.fastJumpStep || 0.5)
+          : (settingsRef.current.nudgeStep || 0.1);
+        const delta = e.code === 'ArrowRight' ? step : -step;
+
+        const minBound = trim ? trim.start : 0;
+        const maxBound = trim ? trim.end : (dur > 0 ? dur : current + step);
+
+        const targetTime = Math.max(minBound, Math.min(maxBound, current + delta));
+        if (dur > 0) {
+          ws.seekTo(targetTime / dur);
+          setCurrentTime(targetTime);
+        }
+      } else if (e.code === 'Space') {
         e.preventDefault();
         if (wavesurfer.current) {
           if (wavesurfer.current.isPlaying()) {
@@ -869,12 +927,15 @@ export default function App() {
           e.preventDefault();
           setAssignModalSound(item);
         }
+      } else if (e.key === ',' && !e.ctrlKey && !e.metaKey) {
+        e.preventDefault();
+        setSettingsOpen(true);
       }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [results, selectedId, editingId, editingProjectId, assignModalSound, confirmDialog, contextMenu, newProjectInline]);
+  }, [results, selectedId, editingId, editingProjectId, assignModalSound, confirmDialog, contextMenu, settingsOpen, newProjectInline]);
 
   const copyToClipboard = async (text: string): Promise<boolean> => {
     // 1. Try modern navigator.clipboard if in a secure context
@@ -1416,10 +1477,17 @@ export default function App() {
             </div>
 
             <div className="flex items-center gap-1 shrink-0">
+              <button
+                onClick={() => setSettingsOpen(true)}
+                className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-700/70 transition cursor-pointer"
+                title="Playback & Scrub Settings [Hotkey: ,]"
+              >
+                <Settings className="w-4 h-4" />
+              </button>
               {isAdmin && (
                 <button
                   onClick={() => setUserMgmtOpen(true)}
-                  className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-700/70 transition"
+                  className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-700/70 transition cursor-pointer"
                   title="User Management"
                 >
                   <Users className="w-4 h-4" />
@@ -1427,7 +1495,7 @@ export default function App() {
               )}
               <button
                 onClick={logout}
-                className="p-1.5 rounded-lg text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 transition"
+                className="p-1.5 rounded-lg text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 transition cursor-pointer"
                 title="Sign out"
               >
                 <LogOut className="w-4 h-4" />
@@ -1948,6 +2016,17 @@ export default function App() {
           isSearching={isSearching}
           isLooping={isLooping}
           isCollected={currentItem ? collectionIds.has(currentItem.id) : false}
+          nudgeStep={settings.nudgeStep}
+          fastJumpStep={settings.fastJumpStep}
+          onOpenSettings={() => setSettingsOpen(true)}
+        />
+
+        {/* Playback & Scrub Settings Modal */}
+        <SettingsModal
+          isOpen={settingsOpen}
+          onClose={() => setSettingsOpen(false)}
+          settings={settings}
+          onSave={handleSaveSettings}
         />
 
         {/* Project Assignment Modal */}

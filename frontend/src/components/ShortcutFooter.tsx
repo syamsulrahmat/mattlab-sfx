@@ -1,5 +1,5 @@
 import React from 'react';
-import { MousePointer, Scissors } from 'lucide-react';
+import { MousePointer, Scissors, Settings } from 'lucide-react';
 
 interface ShortcutFooterProps {
   hasSelectedSound: boolean;
@@ -8,6 +8,9 @@ interface ShortcutFooterProps {
   isSearching: boolean;
   isLooping: boolean;
   isCollected?: boolean;
+  nudgeStep?: number;
+  fastJumpStep?: number;
+  onOpenSettings?: () => void;
 }
 
 export const ShortcutFooter: React.FC<ShortcutFooterProps> = ({
@@ -16,6 +19,9 @@ export const ShortcutFooter: React.FC<ShortcutFooterProps> = ({
   hasTrimRegion,
   isSearching,
   isLooping,
+  nudgeStep = 0.1,
+  fastJumpStep = 0.5,
+  onOpenSettings,
 }) => {
   const KeyBadge = ({
     children,
@@ -93,7 +99,12 @@ export const ShortcutFooter: React.FC<ShortcutFooterProps> = ({
             <span className="text-slate-700">•</span>
             <div className="flex items-center gap-1.5">
               <KeyBadge variant="violet">Space</KeyBadge>
-              <span className="text-violet-200 font-medium">Audition Slice</span>
+              <span className="text-violet-200 font-medium">Audition</span>
+            </div>
+            <span className="text-slate-700">•</span>
+            <div className="flex items-center gap-1.5">
+              <KeyBadge>←</KeyBadge> <KeyBadge>→</KeyBadge>
+              <span className="text-violet-200 font-medium">Scrub ({nudgeStep}s)</span>
             </div>
             <span className="text-slate-700">•</span>
             <div className="flex items-center gap-1.5">
@@ -105,20 +116,20 @@ export const ShortcutFooter: React.FC<ShortcutFooterProps> = ({
               <KeyBadge variant="violet">X</KeyBadge>
               <span className="text-slate-300">Clear Trim</span>
             </div>
-            <span className="text-slate-700">•</span>
-            <div className="flex items-center gap-1.5">
+            <span className="text-slate-700 hidden sm:inline">•</span>
+            <div className="hidden sm:flex items-center gap-1.5">
               <KeyBadge variant={isLooping ? 'indigo' : 'default'}>L</KeyBadge>
-              <span className="text-slate-300">{isLooping ? 'Looping Slice' : 'Loop'}</span>
+              <span className="text-slate-300">{isLooping ? 'Looping' : 'Loop'}</span>
             </div>
             <span className="text-slate-700 hidden md:inline">•</span>
             <div className="hidden md:flex items-center gap-1.5">
-              <KeyBadge>I</KeyBadge> <KeyBadge>O</KeyBadge>
-              <span className="text-slate-400">Nudge In/Out</span>
+              <KeyBadge>Shift</KeyBadge><span className="text-slate-500 text-[10px]">+</span><KeyBadge>←/→</KeyBadge>
+              <span className="text-slate-400">Jump ({fastJumpStep}s)</span>
             </div>
             <span className="text-slate-700 hidden lg:inline">•</span>
             <div className="hidden lg:flex items-center gap-1.5">
-              <KeyBadge>B</KeyBadge>
-              <span className="text-slate-400">Collect</span>
+              <KeyBadge>I</KeyBadge> <KeyBadge>O</KeyBadge>
+              <span className="text-slate-400">Nudge In/Out</span>
             </div>
           </>
         ) : hasSelectedSound ? (
@@ -140,43 +151,48 @@ export const ShortcutFooter: React.FC<ShortcutFooterProps> = ({
             </div>
             <span className="text-slate-700">•</span>
             <div className="flex items-center gap-1.5">
-              <KeyBadge>I</KeyBadge> <KeyBadge>O</KeyBadge>
-              <span className="text-slate-300">Mark In/Out</span>
-            </div>
-            <span className="text-slate-700">•</span>
-            <div className="flex items-center gap-1.5">
-              <KeyBadge variant="violet">D</KeyBadge>
-              <span className="text-slate-300">Download</span>
+              <KeyBadge>←</KeyBadge> <KeyBadge>→</KeyBadge>
+              <span className="text-slate-300">Nudge ({nudgeStep}s)</span>
             </div>
             <span className="text-slate-700 hidden sm:inline">•</span>
             <div className="hidden sm:flex items-center gap-1.5">
+              <KeyBadge>Shift</KeyBadge><span className="text-slate-500 text-[10px]">+</span><KeyBadge>←/→</KeyBadge>
+              <span className="text-slate-400">Jump ({fastJumpStep}s)</span>
+            </div>
+            <span className="text-slate-700">•</span>
+            <div className="flex items-center gap-1.5">
+              <KeyBadge>I</KeyBadge> <KeyBadge>O</KeyBadge>
+              <span className="text-slate-300">Mark In/Out</span>
+            </div>
+            <span className="text-slate-700 hidden md:inline">•</span>
+            <div className="hidden md:flex items-center gap-1.5">
+              <KeyBadge variant="violet">D</KeyBadge>
+              <span className="text-slate-300">Download</span>
+            </div>
+            <span className="text-slate-700 hidden md:inline">•</span>
+            <div className="hidden md:flex items-center gap-1.5">
               <KeyBadge variant={isLooping ? 'indigo' : 'default'}>L</KeyBadge>
               <span className="text-slate-400">Loop</span>
             </div>
-            <span className="text-slate-700 hidden md:inline">•</span>
-            <div className="hidden md:flex items-center gap-1.5">
+            <span className="text-slate-700 hidden lg:inline">•</span>
+            <div className="hidden lg:flex items-center gap-1.5">
               <KeyBadge>B</KeyBadge>
               <span className="text-slate-400">Collect</span>
             </div>
-            <span className="text-slate-700 hidden md:inline">•</span>
-            <div className="hidden md:flex items-center gap-1.5">
+            <span className="text-slate-700 hidden lg:inline">•</span>
+            <div className="hidden lg:flex items-center gap-1.5">
               <KeyBadge>P</KeyBadge>
               <span className="text-slate-400">Projects</span>
             </div>
-            <span className="text-slate-700 hidden lg:inline">•</span>
-            <div className="hidden lg:flex items-center gap-1.5">
+            <span className="text-slate-700 hidden xl:inline">•</span>
+            <div className="hidden xl:flex items-center gap-1.5">
               <KeyBadge>E</KeyBadge>
               <span className="text-slate-400">Explorer</span>
             </div>
-            <span className="text-slate-700 hidden lg:inline">•</span>
-            <div className="hidden lg:flex items-center gap-1.5">
-              <KeyBadge>C</KeyBadge>
-              <span className="text-slate-400">SMB</span>
-            </div>
             <span className="text-slate-700 hidden xl:inline">•</span>
             <div className="hidden xl:flex items-center gap-1.5">
-              <KeyBadge>↑</KeyBadge> <KeyBadge>↓</KeyBadge>
-              <span className="text-slate-400">Navigate</span>
+              <KeyBadge>C</KeyBadge>
+              <span className="text-slate-400">SMB</span>
             </div>
           </>
         ) : (
@@ -205,9 +221,20 @@ export const ShortcutFooter: React.FC<ShortcutFooterProps> = ({
         )}
       </div>
 
-      {/* Right status hint */}
-      <div className="hidden sm:flex items-center gap-2 text-[10px] font-mono text-slate-500 shrink-0 pl-2">
-        <span>MattLab SFX</span>
+      {/* Right status & Settings trigger */}
+      <div className="flex items-center gap-2 text-[10px] font-mono text-slate-500 shrink-0 pl-2">
+        {onOpenSettings && (
+          <button
+            onClick={onOpenSettings}
+            className="flex items-center gap-1 px-1.5 py-0.5 rounded text-slate-400 hover:text-slate-200 hover:bg-slate-800 transition cursor-pointer"
+            title="Open Playback & Scrub Settings"
+          >
+            <Settings className="w-3 h-3 text-slate-400" />
+            <span className="hidden sm:inline">Settings</span>
+          </button>
+        )}
+        <span className="hidden md:inline text-slate-600">|</span>
+        <span className="hidden md:inline">MattLab SFX</span>
       </div>
     </footer>
   );
