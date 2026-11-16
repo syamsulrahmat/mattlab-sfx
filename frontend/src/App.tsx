@@ -105,6 +105,7 @@ export default function App() {
   const [loadingTrackId, setLoadingTrackId] = useState<number | null>(null);
   const currentLoadedIdRef = useRef<number | null>(null);
   const peaksCacheRef = useRef<Map<number, number[]>>(new Map());
+  const trackLoadRequestIdRef = useRef<number>(0);
 
   // WaveSurfer initialization helper
   const initWaveSurfer = (container: HTMLElement) => {
@@ -457,8 +458,23 @@ export default function App() {
       return;
     }
 
+    const requestId = ++trackLoadRequestIdRef.current;
+
+    // 2. Immediately silence any currently playing track (0ms instant cutoff)
+    if (wavesurfer.current) {
+      try {
+        wavesurfer.current.pause();
+      } catch (e) {
+        // ignore
+      }
+    }
+
+    // 3. Immediately switch visual state to new track
+    setIsPlaying(false);
     setSelectedId(item.id);
     setLoadingTrackId(item.id);
+    setCurrentTime(0);
+    setDuration(item.duration || 0);
 
     let ws = wavesurfer.current;
     if (!ws && waveformRef.current) {
@@ -470,13 +486,11 @@ export default function App() {
     }
 
     currentLoadedIdRef.current = item.id;
-    setCurrentTime(0);
-    setDuration(item.duration || 0);
 
     const audioUrl = `/api/stream/${item.id}`;
     const cachedPeaks = peaksCacheRef.current.get(item.id);
 
-    // 2. Load audio stream immediately without waiting for peaks
+    // 4. Load audio stream immediately without waiting for peaks
     try {
       ws.load(audioUrl, cachedPeaks ? [cachedPeaks] : undefined, item.duration || undefined);
       ws.play();
@@ -484,15 +498,15 @@ export default function App() {
       console.warn('Error starting direct playback:', e);
     }
 
-    // Clear spinner as soon as playback starts or buffers
+    // Clear spinner as soon as playback starts or buffers (guarded by requestId)
     ws.once('play', () => {
-      if (currentLoadedIdRef.current === item.id) {
+      if (trackLoadRequestIdRef.current === requestId) {
         setLoadingTrackId(null);
       }
     });
 
     ws.once('ready', () => {
-      if (currentLoadedIdRef.current === item.id) {
+      if (trackLoadRequestIdRef.current === requestId) {
         setDuration(ws.getDuration() || item.duration || 0);
         setLoadingTrackId(null);
       }
@@ -500,12 +514,12 @@ export default function App() {
 
     ws.once('error', (err) => {
       console.error('WaveSurfer error:', err);
-      if (currentLoadedIdRef.current === item.id) {
+      if (trackLoadRequestIdRef.current === requestId) {
         setLoadingTrackId(null);
       }
     });
 
-    // 3. Asynchronously fetch and cache peaks in background
+    // 5. Asynchronously fetch and cache peaks in background
     if (!cachedPeaks) {
       fetch(`/api/peaks/${item.id}`)
         .then((res) => res.json())
