@@ -82,6 +82,23 @@ export default function App() {
   const isLoopingRef = useRef(false);
   isLoopingRef.current = isLooping;
 
+  const filterStateRef = useRef({
+    query,
+    category,
+    sortBy,
+    sortOrder,
+    collectionOnly,
+    activeProjectId,
+  });
+  filterStateRef.current = {
+    query,
+    category,
+    sortBy,
+    sortOrder,
+    collectionOnly,
+    activeProjectId,
+  };
+
   const [aiStatus, setAiStatus] = useState<{
     is_running: boolean;
     total: number;
@@ -497,7 +514,8 @@ export default function App() {
       }
       await fetchProjects();
       if (activeProjectId === projectId) {
-        fetchResults(query, category, sortBy, sortOrder, collectionOnly, activeProjectId);
+        const f = filterStateRef.current;
+        fetchResults(f.query, f.category, f.sortBy, f.sortOrder, f.collectionOnly, f.activeProjectId);
       }
     } catch (e) {
       console.error('Error toggling project assignment:', e);
@@ -533,7 +551,8 @@ export default function App() {
         await fetch(`/api/collection/${item.id}`, { method: 'POST' });
       }
       if (collectionOnly || activeProjectId !== null) {
-        fetchResults(query, category, sortBy, sortOrder, collectionOnly, activeProjectId);
+        const f = filterStateRef.current;
+        fetchResults(f.query, f.category, f.sortBy, f.sortOrder, f.collectionOnly, f.activeProjectId);
       }
       await fetchProjects();
       await fetchProjectAssignments();
@@ -563,7 +582,8 @@ export default function App() {
       const aiData = await aiRes.json();
       setAiStatus(aiData);
       if (aiData.is_running) {
-        fetchResults(query, category, sortBy, sortOrder, collectionOnly, activeProjectId);
+        const f = filterStateRef.current;
+        fetchResults(f.query, f.category, f.sortBy, f.sortOrder, f.collectionOnly, f.activeProjectId);
       }
     } catch (e) {
       console.error(e);
@@ -1090,7 +1110,8 @@ export default function App() {
     setScanning(true);
     await fetch('/api/scan', { method: 'POST' });
     setTimeout(() => {
-      fetchResults(query, category);
+      const f = filterStateRef.current;
+      fetchResults(f.query, f.category, f.sortBy, f.sortOrder, f.collectionOnly, f.activeProjectId);
       fetchAuxData();
       setScanning(false);
     }, 2000);
