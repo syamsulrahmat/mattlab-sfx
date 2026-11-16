@@ -11,7 +11,7 @@ os.environ["TORCH_NUM_THREADS"] = "1"
 from fastapi import FastAPI, BackgroundTasks, Depends, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from app.db.database import init_db, get_db
+from app.db.database import init_db, get_db, get_setting, set_setting
 from app.api.routes_search import router as search_router
 from app.api.routes_audio import router as audio_router
 from app.api.routes_auth import router as auth_router
@@ -53,6 +53,19 @@ async def track_user_activity_middleware(request: Request, call_next):
 @app.on_event("startup")
 def on_startup():
     init_db()
+    # Check if AI crawler was previously active and should auto-resume
+    if get_setting("ai_crawler_enabled", "0") == "1":
+        try:
+            conn = get_db()
+            remaining = conn.execute("SELECT COUNT(*) FROM audio_files WHERE is_classified = 0").fetchone()[0]
+            conn.close()
+            if remaining > 0:
+                print(f"[Auto-Resume] Automatically resuming AI acoustic classification ({remaining} tracks remaining)...", flush=True)
+                start_ai_classification(save_state=False)
+            else:
+                set_setting("ai_crawler_enabled", "0")
+        except Exception as e:
+            print(f"[Auto-Resume] Error checking unclassified files: {e}", flush=True)
 
 app.include_router(auth_router, prefix="/api")
 app.include_router(search_router, prefix="/api")

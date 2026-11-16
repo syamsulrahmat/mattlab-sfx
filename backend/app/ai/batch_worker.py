@@ -2,7 +2,7 @@ import os
 import time
 import threading
 import gc
-from app.db.database import get_db
+from app.db.database import get_db, set_setting
 from app.ai.audio_listener import predict_smart_name
 
 SFX_DIR = os.environ.get("SFX_DIR", "/sfx")
@@ -184,10 +184,14 @@ def _classify_worker():
 
     finally:
         ai_task_status["is_running"] = False
+        if ai_task_status.get("remaining", 0) == 0:
+            set_setting("ai_crawler_enabled", "0")
         conn.close()
 
-def start_ai_classification():
+def start_ai_classification(save_state: bool = True):
     global ai_task_status
+    if save_state:
+        set_setting("ai_crawler_enabled", "1")
     if ai_task_status["is_running"]:
         return False
     ai_task_status["is_running"] = True
@@ -195,7 +199,9 @@ def start_ai_classification():
     t.start()
     return True
 
-def stop_ai_classification():
+def stop_ai_classification(save_state: bool = True):
     global ai_task_status
+    if save_state:
+        set_setting("ai_crawler_enabled", "0")
     ai_task_status["is_running"] = False
     return True

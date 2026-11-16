@@ -4,12 +4,35 @@ import os
 DB_PATH = os.environ.get("DB_PATH", "/data/sfx.db")
 
 def get_db():
-    conn = sqlite3.connect(DB_PATH, check_same_thread=False)
+    conn = sqlite3.connect(DB_PATH, timeout=30.0, check_same_thread=False)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL;")
     conn.execute("PRAGMA synchronous=NORMAL;")
     conn.execute("PRAGMA cache_size=-64000;") # 64MB cache
     return conn
+
+def get_setting(key: str, default: str = "") -> str:
+    """Retrieve persistent application setting from database."""
+    try:
+        conn = get_db()
+        row = conn.execute("SELECT value FROM app_settings WHERE key = ?", (key,)).fetchone()
+        conn.close()
+        return row["value"] if row else default
+    except Exception:
+        return default
+
+def set_setting(key: str, value: str):
+    """Persist application setting in database."""
+    try:
+        conn = get_db()
+        with conn:
+            conn.execute(
+                "INSERT OR REPLACE INTO app_settings(key, value, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP)",
+                (key, value)
+            )
+        conn.close()
+    except Exception as e:
+        print(f"Error setting {key}: {e}", flush=True)
 
 def init_db():
     os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
@@ -172,6 +195,15 @@ def init_db():
         conn.execute("""
             INSERT INTO audio_fts(rowid, filename, display_name, tokens, pack, folder, description, category, sub_category, designer)
             SELECT id, filename, display_name, tokens, pack, folder, description, category, sub_category, designer FROM audio_files;
+        """)
+
+        # Persistent application settings table
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS app_settings (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
         """)
 
     conn.close()
