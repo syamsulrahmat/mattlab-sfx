@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import WaveSurfer from 'wavesurfer.js';
-import { Play, Pause, Search, Volume2, Copy, Check, RefreshCw, Tag, X, Edit2, Wand2, Brain, Square, FolderOpen, Menu, ArrowUpDown, ArrowUp, ArrowDown, Download, Bookmark, FolderPlus, Trash2, Plus, Folder, ChevronDown, ChevronRight, AlertCircle, CheckCircle2, Info, Users, LogOut, Loader2 } from 'lucide-react';
+import RegionsPlugin from 'wavesurfer.js/dist/plugins/regions.esm.js';
+import { Play, Pause, Search, Volume2, Copy, Check, RefreshCw, Tag, X, Edit2, Wand2, Brain, Square, FolderOpen, Menu, ArrowUpDown, ArrowUp, ArrowDown, Download, Bookmark, FolderPlus, Trash2, Plus, Folder, ChevronDown, ChevronRight, AlertCircle, CheckCircle2, Info, Users, LogOut, Loader2, Scissors } from 'lucide-react';
 import { Logo } from './components/Logo';
 import { AudioPlayer } from './components/AudioPlayer';
 import { ProjectAssignModal, ProjectCollection } from './components/ProjectAssignModal';
@@ -106,6 +107,10 @@ export default function App() {
   const currentLoadedIdRef = useRef<number | null>(null);
   const peaksCacheRef = useRef<Map<number, number[]>>(new Map());
   const trackLoadRequestIdRef = useRef<number>(0);
+  const regionsPluginRef = useRef<any>(null);
+  const [trimRegion, setTrimRegion] = useState<{ start: number; end: number } | null>(null);
+  const trimRegionRef = useRef<{ start: number; end: number } | null>(null);
+  trimRegionRef.current = trimRegion;
 
   // WaveSurfer initialization helper
   const initWaveSurfer = (container: HTMLElement) => {
@@ -123,16 +128,70 @@ export default function App() {
       autoplay: true,
     });
 
+    const wsRegions = RegionsPlugin.create();
+    ws.registerPlugin(wsRegions);
+    regionsPluginRef.current = wsRegions;
+
+    wsRegions.enableDragSelection({
+      color: 'rgba(139, 92, 246, 0.28)',
+    });
+
+    wsRegions.on('region-created', (region: any) => {
+      // Retain only the newest active trim region
+      const all = wsRegions.getRegions();
+      all.forEach((r: any) => {
+        if (r.id !== region.id) r.remove();
+      });
+      setTrimRegion({ start: Math.max(0, region.start), end: region.end });
+    });
+
+    wsRegions.on('region-update', (region: any) => {
+      setTrimRegion({ start: Math.max(0, region.start), end: region.end });
+    });
+
+    wsRegions.on('region-updated', (region: any) => {
+      setTrimRegion({ start: Math.max(0, region.start), end: region.end });
+    });
+
+    wsRegions.on('region-removed', () => {
+      setTrimRegion(null);
+    });
+
     ws.on('play', () => setIsPlaying(true));
     ws.on('pause', () => setIsPlaying(false));
     ws.on('finish', () => {
-      if (isLoopingRef.current) {
+      const trim = trimRegionRef.current;
+      if (trim) {
+        if (isLoopingRef.current) {
+          ws.seekTo(trim.start / (ws.getDuration() || 1));
+          ws.play();
+        } else {
+          setIsPlaying(false);
+          ws.seekTo(trim.start / (ws.getDuration() || 1));
+        }
+      } else if (isLoopingRef.current) {
         wavesurfer.current?.play();
       } else {
         setIsPlaying(false);
       }
     });
-    ws.on('timeupdate', (t) => setCurrentTime(t));
+
+    ws.on('timeupdate', (t) => {
+      setCurrentTime(t);
+      const trim = trimRegionRef.current;
+      if (trim && ws.isPlaying()) {
+        if (t >= trim.end) {
+          if (isLoopingRef.current) {
+            ws.seekTo(trim.start / (ws.getDuration() || 1));
+            ws.play();
+          } else {
+            ws.pause();
+            ws.seekTo(trim.start / (ws.getDuration() || 1));
+          }
+        }
+      }
+    });
+
     ws.on('ready', () => {
       setDuration(ws.getDuration() || 0);
     });
@@ -452,9 +511,15 @@ export default function App() {
     // 1. Instant retrigger if this sound is already loaded in WaveSurfer
     if (currentLoadedIdRef.current === item.id && wavesurfer.current) {
       setSelectedId(item.id);
-      wavesurfer.current.seekTo(0);
+      const trim = trimRegionRef.current;
+      if (trim) {
+        wavesurfer.current.seekTo(trim.start / (wavesurfer.current.getDuration() || 1));
+        setCurrentTime(trim.start);
+      } else {
+        wavesurfer.current.seekTo(0);
+        setCurrentTime(0);
+      }
       wavesurfer.current.play();
-      setCurrentTime(0);
       return;
     }
 
@@ -468,6 +533,12 @@ export default function App() {
         // ignore
       }
     }
+
+    // Clear any previous trim regions when switching sound
+    if (regionsPluginRef.current) {
+      regionsPluginRef.current.clearRegions();
+    }
+    setTrimRegion(null);
 
     // 3. Immediately switch visual state to new track
     setIsPlaying(false);
@@ -532,6 +603,102 @@ export default function App() {
     }
   };
 
+  const handleMarkIn = () => {
+    const ws = wavesurfer.current;
+    const wsRegions = regionsPluginRef.current;
+    if (!ws || !wsRegions) return;
+
+    const time = ws.getCurrentTime() || 0;
+    const dur = ws.getDuration() || duration || 0;
+    const regions = wsRegions.getRegions();
+
+    if (regions.length > 0) {
+      const reg = regions[0];
+      const end = reg.end > time ? reg.end : Math.min(time + 1, dur > 0 ? dur : time + 1);
+      reg.setOptions({ start: time, end });
+      setTrimRegion({ start: time, end });
+    } else {
+      const end = dur > time ? dur : time + 1;
+      wsRegions.addRegion({
+        start: time,
+        end,
+        color: 'rgba(139, 92, 246, 0.28)',
+      });
+      setTrimRegion({ start: time, end });
+    }
+    addToast({
+      type: 'info',
+      title: 'Trim IN Marked [I]',
+      body: `Start set to ${time.toFixed(2)}s`,
+    });
+  };
+
+  const handleMarkOut = () => {
+    const ws = wavesurfer.current;
+    const wsRegions = regionsPluginRef.current;
+    if (!ws || !wsRegions) return;
+
+    const time = ws.getCurrentTime() || 0;
+    const regions = wsRegions.getRegions();
+
+    if (regions.length > 0) {
+      const reg = regions[0];
+      const start = reg.start < time ? reg.start : Math.max(0, time - 1);
+      reg.setOptions({ start, end: time });
+      setTrimRegion({ start, end: time });
+    } else {
+      const start = 0;
+      wsRegions.addRegion({
+        start,
+        end: time,
+        color: 'rgba(139, 92, 246, 0.28)',
+      });
+      setTrimRegion({ start, end: time });
+    }
+    addToast({
+      type: 'info',
+      title: 'Trim OUT Marked [O]',
+      body: `End set to ${time.toFixed(2)}s`,
+    });
+  };
+
+  const handleClearTrim = () => {
+    if (regionsPluginRef.current) {
+      regionsPluginRef.current.clearRegions();
+    }
+    setTrimRegion(null);
+    addToast({
+      type: 'info',
+      title: 'Trim Cleared [X]',
+      body: 'Full track restored',
+    });
+  };
+
+  const downloadAudio = (item: AudioItem, trim?: { start: number; end: number } | null) => {
+    const link = document.createElement('a');
+    let url = `/api/download/${item.id}`;
+    let title = 'Downloading Sound';
+    let body = item.display_name || item.filename;
+
+    if (trim && trim.end > trim.start) {
+      url += `?start=${trim.start.toFixed(3)}&end=${trim.end.toFixed(3)}`;
+      const dur = (trim.end - trim.start).toFixed(1);
+      title = `Downloading Trimmed Slice (${dur}s)`;
+      body = `${item.display_name || item.filename} [${trim.start.toFixed(1)}s - ${trim.end.toFixed(1)}s]`;
+    }
+
+    link.href = url;
+    link.download = item.filename;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    addToast({
+      type: 'info',
+      title,
+      body,
+    });
+  };
+
   // Keyboard navigation & shortcuts
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -578,7 +745,16 @@ export default function App() {
       if (e.code === 'Space') {
         e.preventDefault();
         if (wavesurfer.current) {
-          wavesurfer.current.playPause();
+          if (wavesurfer.current.isPlaying()) {
+            wavesurfer.current.pause();
+          } else {
+            const trim = trimRegionRef.current;
+            const cur = wavesurfer.current.getCurrentTime();
+            if (trim && (cur < trim.start || cur >= trim.end)) {
+              wavesurfer.current.seekTo(trim.start / (wavesurfer.current.getDuration() || 1));
+            }
+            wavesurfer.current.play();
+          }
         } else if (results.length > 0) {
           const itemToPlay = results.find((r) => r.id === selectedId) || results[0];
           selectTrack(itemToPlay);
@@ -612,11 +788,20 @@ export default function App() {
       } else if (e.key.toLowerCase() === 'l' && !e.ctrlKey && !e.metaKey) {
         e.preventDefault();
         setIsLooping((prev) => !prev);
+      } else if (e.key.toLowerCase() === 'i' && !e.ctrlKey && !e.metaKey) {
+        e.preventDefault();
+        handleMarkIn();
+      } else if (e.key.toLowerCase() === 'o' && !e.ctrlKey && !e.metaKey) {
+        e.preventDefault();
+        handleMarkOut();
+      } else if (e.key.toLowerCase() === 'x' && !e.ctrlKey && !e.metaKey) {
+        e.preventDefault();
+        handleClearTrim();
       } else if (e.key.toLowerCase() === 'd' && !e.ctrlKey && !e.metaKey) {
         const item = results.find((r) => r.id === selectedId);
         if (item) {
           e.preventDefault();
-          downloadAudio(item);
+          downloadAudio(item, trimRegionRef.current);
         }
       } else if (e.key.toLowerCase() === 'b' && !e.ctrlKey && !e.metaKey) {
         const item = results.find((r) => r.id === selectedId);
@@ -636,20 +821,6 @@ export default function App() {
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [results, selectedId, editingId, editingProjectId, assignModalSound, confirmDialog, contextMenu, newProjectInline]);
-
-  const downloadAudio = (item: AudioItem) => {
-    const link = document.createElement('a');
-    link.href = `/api/download/${item.id}`;
-    link.download = item.filename;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    addToast({
-      type: 'info',
-      title: 'Downloading Sound',
-      body: item.display_name || item.filename,
-    });
-  };
 
   const copyToClipboard = async (text: string): Promise<boolean> => {
     // 1. Try modern navigator.clipboard if in a secure context
@@ -1609,12 +1780,20 @@ export default function App() {
                         <button
                           onClick={(e) => {
                             e.stopPropagation();
-                            downloadAudio(item);
+                            downloadAudio(item, item.id === selectedId ? trimRegion : null);
                           }}
-                          title={`Download audio file to browser [Hotkey: D]:\n${item.filename}`}
+                          title={
+                            item.id === selectedId && trimRegion && trimRegion.end > trimRegion.start
+                              ? `Download trimmed slice (${(trimRegion.end - trimRegion.start).toFixed(1)}s) [Hotkey: D]:\n${item.filename}`
+                              : `Download audio file to browser [Hotkey: D]:\n${item.filename}`
+                          }
                           className="p-1.5 rounded-lg bg-violet-950/40 hover:bg-violet-600/30 text-violet-300 hover:text-violet-100 border border-violet-800/50 hover:border-violet-500/70 transition cursor-pointer shadow-sm"
                         >
-                          <Download className="w-4 h-4" />
+                          {item.id === selectedId && trimRegion && trimRegion.end > trimRegion.start ? (
+                            <Scissors className="w-4 h-4 text-violet-400" />
+                          ) : (
+                            <Download className="w-4 h-4" />
+                          )}
                         </button>
                       </div>
                     </td>
@@ -1665,7 +1844,16 @@ export default function App() {
           isLoading={loadingTrackId === currentItem?.id}
           onPlayPause={() => {
             if (wavesurfer.current) {
-              wavesurfer.current.playPause();
+              if (wavesurfer.current.isPlaying()) {
+                wavesurfer.current.pause();
+              } else {
+                const trim = trimRegionRef.current;
+                const cur = wavesurfer.current.getCurrentTime();
+                if (trim && (cur < trim.start || cur >= trim.end)) {
+                  wavesurfer.current.seekTo(trim.start / (wavesurfer.current.getDuration() || 1));
+                }
+                wavesurfer.current.play();
+              }
             } else if (currentItem) {
               selectTrack(currentItem);
             }
@@ -1687,6 +1875,8 @@ export default function App() {
           onCopySMB={copySMB}
           copiedId={copiedId}
           onDownload={downloadAudio}
+          trimRegion={trimRegion}
+          onClearTrim={handleClearTrim}
           isCollected={currentItem ? collectionIds.has(currentItem.id) : false}
           onToggleCollect={toggleCollect}
           onOpenProjects={(item) => setAssignModalSound(item)}
@@ -1735,7 +1925,7 @@ export default function App() {
             onPlayPause={(item) => selectTrack(item)}
             onToggleCollect={toggleCollect}
             onOpenProjects={(item) => setAssignModalSound(item)}
-            onDownload={downloadAudio}
+            onDownload={(item) => downloadAudio(item, item.id === selectedId ? trimRegion : null)}
             onCopyExplorer={copyExplorer}
             onCopySMB={copySMB}
             onAiListen={(item) => aiListen(item.id)}

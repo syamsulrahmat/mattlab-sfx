@@ -1,7 +1,10 @@
 import os
 import json
 import hashlib
-from fastapi import APIRouter, HTTPException, Request
+import subprocess
+import tempfile
+from typing import Optional
+from fastapi import APIRouter, HTTPException, Request, BackgroundTasks, Query
 from fastapi.responses import FileResponse, Response
 from app.db.database import get_db
 from app.scanner.peak_generator import generate_peaks
@@ -9,6 +12,14 @@ from app.scanner.peak_generator import generate_peaks
 router = APIRouter()
 SFX_DIR = os.environ.get("SFX_DIR", "/sfx")
 PEAKS_DIR = os.environ.get("PEAKS_DIR", "/peaks")
+
+def cleanup_file(path: str):
+    """Safely remove temporary slice file after client download completes."""
+    try:
+        if os.path.exists(path):
+            os.remove(path)
+    except Exception:
+        pass
 
 @router.get("/stream/{file_id}")
 async def stream_audio(file_id: int, request: Request):
@@ -50,9 +61,14 @@ async def stream_audio(file_id: int, request: Request):
     return FileResponse(file_path)
 
 @router.get("/download/{file_id}")
-def download_audio(file_id: int):
+def download_audio(
+    file_id: int,
+    background_tasks: BackgroundTasks,
+    start: Optional[float] = Query(None, description="Trim start position in seconds"),
+    end: Optional[float] = Query(None, description="Trim end position in seconds")
+):
     conn = get_db()
-    row = conn.execute("SELECT filename, display_name, rel_path FROM audio_files WHERE id = ?", [file_id]).fetchone()
+    row = conn.execute("SELECT filename, display_name, rel_path, duration FROM audio_files WHERE id = ?", [file_id]).fetchone()
     conn.close()
     
     if not row:
@@ -62,11 +78,79 @@ def download_audio(file_id: int):
     if not os.path.exists(file_path):
         raise HTTPException(status_code=404, detail="File missing on disk")
 
-    return FileResponse(
-        path=file_path,
-        filename=row["filename"],
-        media_type="application/octet-stream"
-    )
+    orig_filename = row["filename"]
+    base_name, ext = os.path.splitext(orig_filename)
+
+    # Standard full download if no trim range is specified
+    if start is None or end is None or end <= start:
+        return FileResponse(
+            path=file_path,
+            filename=orig_filename,
+            media_type="application/octet-stream"
+        )
+
+    # Clamp parameters
+    start = max(0.0, float(start))
+    if row["duration"] and row["duration"] > 0:
+        end = min(float(row["duration"]), float(end))
+    else:
+        end = float(end)
+
+    if end <= start:
+        return FileResponse(
+            path=file_path,
+            filename=orig_filename,
+            media_type="application/octet-stream"
+        )
+
+    start_str = f"{start:.2f}".rstrip("0").rstrip(".")
+    end_str = f"{end:.2f}".rstrip("0").rstrip(".")
+    trimmed_filename = f"{base_name}_trim_{start_str}s-{end_str}s{ext}"
+
+    # Generate temporary sliced file for download
+    temp_dir = tempfile.gettempdir()
+    temp_file = tempfile.NamedTemporaryFile(dir=temp_dir, suffix=ext, delete=False)
+    temp_path = temp_file.name
+    temp_file.close()
+
+    try:
+        # Fast lossless stream slice
+        cmd = [
+            "ffmpeg", "-v", "error", "-y",
+            "-ss", str(start),
+            "-to", str(end),
+            "-i", file_path,
+            "-c", "copy",
+            temp_path
+        ]
+        res = subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, timeout=10)
+        # Fallback to high-quality re-encode if stream copy fails on audio boundary
+        if res.returncode != 0 or not os.path.exists(temp_path) or os.path.getsize(temp_path) == 0:
+            cmd_reencode = [
+                "ffmpeg", "-v", "error", "-y",
+                "-ss", str(start),
+                "-to", str(end),
+                "-i", file_path,
+                temp_path
+            ]
+            subprocess.run(cmd_reencode, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=15)
+
+        if not os.path.exists(temp_path) or os.path.getsize(temp_path) == 0:
+            cleanup_file(temp_path)
+            raise HTTPException(status_code=500, detail="Failed to slice audio")
+
+        background_tasks.add_task(cleanup_file, temp_path)
+        return FileResponse(
+            path=temp_path,
+            filename=trimmed_filename,
+            media_type="application/octet-stream",
+            background=background_tasks
+        )
+    except Exception as e:
+        cleanup_file(temp_path)
+        if isinstance(e, HTTPException):
+            raise e
+        raise HTTPException(status_code=500, detail=f"Error trimming audio: {e}")
 
 @router.get("/peaks/{file_id}")
 def get_peaks(file_id: int):
