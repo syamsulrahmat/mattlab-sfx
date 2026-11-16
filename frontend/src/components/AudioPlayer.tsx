@@ -1,5 +1,5 @@
 import React from 'react';
-import { Play, Pause, FolderOpen, Copy, Check, Wand2, Repeat, Volume2, VolumeX, Download, Bookmark, FolderPlus } from 'lucide-react';
+import { Play, Pause, FolderOpen, Copy, Check, Wand2, Repeat, Volume2, VolumeX, Download, Bookmark, FolderPlus, Loader2 } from 'lucide-react';
 
 export interface AudioItem {
   id: number;
@@ -19,6 +19,7 @@ export interface AudioItem {
 interface AudioPlayerProps {
   currentItem: AudioItem | null;
   isPlaying: boolean;
+  isLoading?: boolean;
   onPlayPause: () => void;
   waveformRef: React.RefObject<HTMLDivElement>;
   currentTime: number;
@@ -44,6 +45,7 @@ interface AudioPlayerProps {
 export const AudioPlayer: React.FC<AudioPlayerProps> = ({
   currentItem,
   isPlaying,
+  isLoading = false,
   onPlayPause,
   waveformRef,
   currentTime,
@@ -82,10 +84,20 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({
           <button
             onClick={onPlayPause}
             disabled={!currentItem}
-            className="w-10 h-10 rounded-full bg-indigo-600 hover:bg-indigo-500 disabled:bg-slate-800 disabled:text-slate-600 text-white flex items-center justify-center transition shadow-lg shadow-indigo-600/25 shrink-0 cursor-pointer"
-            title="Play / Pause [Space]"
+            className={`w-10 h-10 rounded-full flex items-center justify-center transition shadow-lg shrink-0 cursor-pointer ${
+              isLoading
+                ? 'bg-indigo-950 border border-indigo-400/60 text-indigo-300 shadow-indigo-500/20'
+                : 'bg-indigo-600 hover:bg-indigo-500 disabled:bg-slate-800 disabled:text-slate-600 text-white shadow-indigo-600/25'
+            }`}
+            title={isLoading ? 'Buffering audio...' : 'Play / Pause [Space]'}
           >
-            {isPlaying ? <Pause className="w-5 h-5" /> : <Play className="w-5 h-5 ml-0.5" />}
+            {isLoading ? (
+              <Loader2 className="w-5 h-5 animate-spin text-indigo-300" />
+            ) : isPlaying ? (
+              <Pause className="w-5 h-5" />
+            ) : (
+              <Play className="w-5 h-5 ml-0.5" />
+            )}
           </button>
 
           <div className="min-w-0 flex-1">
@@ -93,6 +105,11 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({
               <span className="text-xs sm:text-sm font-semibold text-white truncate leading-snug">
                 {currentItem ? (currentItem.display_name || currentItem.filename) : 'Select a sound effect to preview'}
               </span>
+              {isLoading && (
+                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-mono bg-indigo-950/80 text-indigo-300 border border-indigo-500/40 shrink-0 animate-pulse">
+                  <Loader2 className="w-3 h-3 animate-spin" /> Buffering
+                </span>
+              )}
               {currentItem && currentItem.sample_rate > 0 && (
                 <span className="hidden md:inline-block px-1.5 py-0.5 rounded text-[10px] font-mono bg-slate-800 text-slate-400 border border-slate-700/60 shrink-0">
                   {(currentItem.sample_rate / 1000).toFixed(1)} kHz {currentItem.channels === 2 ? 'Stereo' : currentItem.channels === 1 ? 'Mono' : ''}

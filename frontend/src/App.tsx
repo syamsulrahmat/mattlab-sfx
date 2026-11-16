@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import WaveSurfer from 'wavesurfer.js';
-import { Play, Pause, Search, Volume2, Copy, Check, RefreshCw, Tag, X, Edit2, Wand2, Brain, Square, FolderOpen, Menu, ArrowUpDown, ArrowUp, ArrowDown, Download, Bookmark, FolderPlus, Trash2, Plus, Folder, ChevronDown, ChevronRight, AlertCircle, CheckCircle2, Info, Users, LogOut } from 'lucide-react';
+import { Play, Pause, Search, Volume2, Copy, Check, RefreshCw, Tag, X, Edit2, Wand2, Brain, Square, FolderOpen, Menu, ArrowUpDown, ArrowUp, ArrowDown, Download, Bookmark, FolderPlus, Trash2, Plus, Folder, ChevronDown, ChevronRight, AlertCircle, CheckCircle2, Info, Users, LogOut, Loader2 } from 'lucide-react';
 import { Logo } from './components/Logo';
 import { AudioPlayer } from './components/AudioPlayer';
 import { ProjectAssignModal, ProjectCollection } from './components/ProjectAssignModal';
@@ -102,6 +102,9 @@ export default function App() {
   const waveformRef = useRef<HTMLDivElement>(null);
   const wavesurfer = useRef<WaveSurfer | null>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
+  const [loadingTrackId, setLoadingTrackId] = useState<number | null>(null);
+  const currentLoadedIdRef = useRef<number | null>(null);
+  const peaksCacheRef = useRef<Map<number, number[]>>(new Map());
 
   // WaveSurfer initialization helper
   const initWaveSurfer = (container: HTMLElement) => {
@@ -116,6 +119,7 @@ export default function App() {
       barRadius: 2,
       barGap: 1,
       height: 44,
+      autoplay: true,
     });
 
     ws.on('play', () => setIsPlaying(true));
@@ -442,29 +446,75 @@ export default function App() {
     return () => clearInterval(interval);
   }, [user, query, category]);
 
-  // Load and play selected track
-  const selectTrack = async (item: AudioItem) => {
+  // Load and play selected track with instant retrigger & zero-blocking streaming
+  const selectTrack = (item: AudioItem) => {
+    // 1. Instant retrigger if this sound is already loaded in WaveSurfer
+    if (currentLoadedIdRef.current === item.id && wavesurfer.current) {
+      setSelectedId(item.id);
+      wavesurfer.current.seekTo(0);
+      wavesurfer.current.play();
+      setCurrentTime(0);
+      return;
+    }
+
     setSelectedId(item.id);
+    setLoadingTrackId(item.id);
+
     let ws = wavesurfer.current;
     if (!ws && waveformRef.current) {
       ws = initWaveSurfer(waveformRef.current);
     }
-    if (!ws) return;
+    if (!ws) {
+      setLoadingTrackId(null);
+      return;
+    }
 
+    currentLoadedIdRef.current = item.id;
+    setCurrentTime(0);
+    setDuration(item.duration || 0);
+
+    const audioUrl = `/api/stream/${item.id}`;
+    const cachedPeaks = peaksCacheRef.current.get(item.id);
+
+    // 2. Load audio stream immediately without waiting for peaks
     try {
-      const peakRes = await fetch(`/api/peaks/${item.id}`);
-      const peaks = await peakRes.json();
-      const audioUrl = `/api/stream/${item.id}`;
-
-      ws.load(audioUrl, [peaks]);
-      setCurrentTime(0);
-      setDuration(item.duration || 0);
-      ws.once('ready', () => {
-        setDuration(ws.getDuration() || item.duration || 0);
-        ws.play();
-      });
+      ws.load(audioUrl, cachedPeaks ? [cachedPeaks] : undefined, item.duration || undefined);
+      ws.play();
     } catch (e) {
-      console.error('Error loading audio:', e);
+      console.warn('Error starting direct playback:', e);
+    }
+
+    // Clear spinner as soon as playback starts or buffers
+    ws.once('play', () => {
+      if (currentLoadedIdRef.current === item.id) {
+        setLoadingTrackId(null);
+      }
+    });
+
+    ws.once('ready', () => {
+      if (currentLoadedIdRef.current === item.id) {
+        setDuration(ws.getDuration() || item.duration || 0);
+        setLoadingTrackId(null);
+      }
+    });
+
+    ws.once('error', (err) => {
+      console.error('WaveSurfer error:', err);
+      if (currentLoadedIdRef.current === item.id) {
+        setLoadingTrackId(null);
+      }
+    });
+
+    // 3. Asynchronously fetch and cache peaks in background
+    if (!cachedPeaks) {
+      fetch(`/api/peaks/${item.id}`)
+        .then((res) => res.json())
+        .then((peaks) => {
+          if (Array.isArray(peaks) && peaks.length > 0) {
+            peaksCacheRef.current.set(item.id, peaks);
+          }
+        })
+        .catch(() => {});
     }
   };
 
@@ -1382,15 +1432,30 @@ export default function App() {
                       <button
                         onClick={(e) => {
                           e.stopPropagation();
-                          if (isSelected) {
-                            wavesurfer.current?.playPause();
-                          } else {
-                            selectTrack(item);
-                          }
+                          selectTrack(item);
                         }}
-                        className="w-8 h-8 rounded-full bg-slate-800 hover:bg-indigo-600 flex items-center justify-center text-slate-300 hover:text-white transition shrink-0"
+                        className={`w-8 h-8 rounded-full flex items-center justify-center transition shrink-0 cursor-pointer ${
+                          loadingTrackId === item.id
+                            ? 'bg-indigo-950 border border-indigo-500/70 text-indigo-400 shadow-md shadow-indigo-500/20'
+                            : isSelected && isPlaying
+                            ? 'bg-indigo-600 hover:bg-indigo-500 text-white'
+                            : 'bg-slate-800 hover:bg-indigo-600 text-slate-300 hover:text-white'
+                        }`}
+                        title={
+                          loadingTrackId === item.id
+                            ? 'Buffering audio...'
+                            : isSelected && isPlaying
+                            ? 'Click to re-trigger from start'
+                            : 'Play sound'
+                        }
                       >
-                        {isSelected && isPlaying ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4 ml-0.5" />}
+                        {loadingTrackId === item.id ? (
+                          <Loader2 className="w-4 h-4 animate-spin text-indigo-400" />
+                        ) : isSelected && isPlaying ? (
+                          <Pause className="w-4 h-4" />
+                        ) : (
+                          <Play className="w-4 h-4 ml-0.5" />
+                        )}
                       </button>
                     </td>
                     <td className="py-2.5 px-2 sm:px-4 font-medium text-slate-200 min-w-0 overflow-hidden">
@@ -1590,6 +1655,7 @@ export default function App() {
         <AudioPlayer
           currentItem={currentItem}
           isPlaying={isPlaying}
+          isLoading={loadingTrackId === currentItem?.id}
           onPlayPause={() => {
             if (wavesurfer.current) {
               wavesurfer.current.playPause();
@@ -1655,16 +1721,11 @@ export default function App() {
             isAdmin={isAdmin}
             isSelected={selectedId === contextMenu.item.id}
             isPlaying={isPlaying && selectedId === contextMenu.item.id}
+            isLoading={loadingTrackId === contextMenu.item.id}
             isCollected={collectionIds.has(contextMenu.item.id)}
             assignedProjectsCount={(projectAssignments[contextMenu.item.id] || []).length}
             onClose={() => setContextMenu(null)}
-            onPlayPause={(item) => {
-              if (selectedId === item.id) {
-                wavesurfer.current?.playPause();
-              } else {
-                selectTrack(item);
-              }
-            }}
+            onPlayPause={(item) => selectTrack(item)}
             onToggleCollect={toggleCollect}
             onOpenProjects={(item) => setAssignModalSound(item)}
             onDownload={downloadAudio}

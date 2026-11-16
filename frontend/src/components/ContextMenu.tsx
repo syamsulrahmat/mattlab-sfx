@@ -9,6 +9,7 @@ import {
   Copy,
   Wand2,
   Edit2,
+  Loader2,
 } from 'lucide-react';
 import { AudioItem } from './AudioPlayer';
 
@@ -18,6 +19,7 @@ export interface ContextMenuProps {
   item: AudioItem;
   isSelected: boolean;
   isPlaying: boolean;
+  isLoading?: boolean;
   isCollected: boolean;
   assignedProjectsCount: number;
   isAdmin?: boolean;
@@ -38,6 +40,7 @@ export const ContextMenu: React.FC<ContextMenuProps> = ({
   item,
   isSelected,
   isPlaying,
+  isLoading = false,
   isCollected,
   assignedProjectsCount,
   isAdmin = false,
@@ -131,12 +134,14 @@ export const ContextMenu: React.FC<ContextMenuProps> = ({
           className="w-full flex items-center justify-between px-3 py-1.5 hover:bg-indigo-600/25 hover:text-white transition text-left cursor-pointer group"
         >
           <span className="flex items-center gap-2">
-            {isSelected && isPlaying ? (
+            {isLoading ? (
+              <Loader2 className="w-3.5 h-3.5 animate-spin text-indigo-400" />
+            ) : isSelected && isPlaying ? (
               <Pause className="w-3.5 h-3.5 text-indigo-400" />
             ) : (
               <Play className="w-3.5 h-3.5 text-indigo-400 ml-0.5" />
             )}
-            <span>{isSelected && isPlaying ? 'Pause Audio' : 'Play Sound'}</span>
+            <span>{isLoading ? 'Buffering audio...' : isSelected && isPlaying ? 'Pause Audio' : 'Play Sound'}</span>
           </span>
           <kbd className="text-[10px] text-slate-500 font-mono bg-slate-800/80 px-1.5 py-0.2 rounded border border-slate-700/60">
             Space
