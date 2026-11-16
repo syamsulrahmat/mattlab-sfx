@@ -132,9 +132,21 @@ export default function App() {
     ws.registerPlugin(wsRegions);
     regionsPluginRef.current = wsRegions;
 
-    wsRegions.enableDragSelection({
-      color: 'rgba(139, 92, 246, 0.28)',
-    });
+    const getMinTrimDuration = () => {
+      const totalDur = ws.getDuration() || 0;
+      if (totalDur > 0 && totalDur < 0.6) {
+        return Math.max(0.1, totalDur * 0.5);
+      }
+      return 0.3; // 300ms minimum trim threshold
+    };
+
+    wsRegions.enableDragSelection(
+      {
+        color: 'rgba(139, 92, 246, 0.28)',
+        minLength: 0.3,
+      },
+      10 // 10px drag threshold to filter out pure clicks and accidental mouse slips
+    );
 
     wsRegions.on('region-created', (region: any) => {
       // Retain only the newest active trim region
@@ -142,6 +154,21 @@ export default function App() {
       all.forEach((r: any) => {
         if (r.id !== region.id) r.remove();
       });
+
+      const span = region.end - region.start;
+      const minDur = getMinTrimDuration();
+      if (span < minDur) {
+        // Silently discard accidental micro-drag (< 300ms) and seek to position
+        const seekTime = Math.max(0, region.start);
+        region.remove();
+        setTrimRegion(null);
+        if (ws.getDuration() > 0) {
+          ws.seekTo(seekTime / ws.getDuration());
+          setCurrentTime(seekTime);
+        }
+        return;
+      }
+
       setTrimRegion({ start: Math.max(0, region.start), end: region.end });
     });
 
@@ -150,6 +177,20 @@ export default function App() {
     });
 
     wsRegions.on('region-updated', (region: any) => {
+      const span = region.end - region.start;
+      const minDur = getMinTrimDuration();
+      if (span < minDur) {
+        // Silently discard if resized below 300ms threshold and seek
+        const seekTime = Math.max(0, region.start);
+        region.remove();
+        setTrimRegion(null);
+        if (ws.getDuration() > 0) {
+          ws.seekTo(seekTime / ws.getDuration());
+          setCurrentTime(seekTime);
+        }
+        return;
+      }
+
       setTrimRegion({ start: Math.max(0, region.start), end: region.end });
     });
 
@@ -610,19 +651,24 @@ export default function App() {
 
     const time = ws.getCurrentTime() || 0;
     const dur = ws.getDuration() || duration || 0;
+    const minSpan = dur > 0 && dur < 0.6 ? Math.max(0.1, dur * 0.5) : 0.3;
     const regions = wsRegions.getRegions();
 
     if (regions.length > 0) {
       const reg = regions[0];
-      const end = reg.end > time ? reg.end : Math.min(time + 1, dur > 0 ? dur : time + 1);
-      reg.setOptions({ start: time, end });
+      let end = reg.end;
+      if (end - time < minSpan) {
+        end = Math.min(time + minSpan, dur > 0 ? dur : time + minSpan);
+      }
+      reg.setOptions({ start: time, end, minLength: minSpan });
       setTrimRegion({ start: time, end });
     } else {
-      const end = dur > time ? dur : time + 1;
+      const end = dur > time + minSpan ? dur : time + minSpan;
       wsRegions.addRegion({
         start: time,
         end,
         color: 'rgba(139, 92, 246, 0.28)',
+        minLength: minSpan,
       });
       setTrimRegion({ start: time, end });
     }
@@ -639,19 +685,25 @@ export default function App() {
     if (!ws || !wsRegions) return;
 
     const time = ws.getCurrentTime() || 0;
+    const dur = ws.getDuration() || duration || 0;
+    const minSpan = dur > 0 && dur < 0.6 ? Math.max(0.1, dur * 0.5) : 0.3;
     const regions = wsRegions.getRegions();
 
     if (regions.length > 0) {
       const reg = regions[0];
-      const start = reg.start < time ? reg.start : Math.max(0, time - 1);
-      reg.setOptions({ start, end: time });
+      let start = reg.start;
+      if (time - start < minSpan) {
+        start = Math.max(0, time - minSpan);
+      }
+      reg.setOptions({ start, end: time, minLength: minSpan });
       setTrimRegion({ start, end: time });
     } else {
-      const start = 0;
+      const start = Math.max(0, time - minSpan);
       wsRegions.addRegion({
         start,
         end: time,
         color: 'rgba(139, 92, 246, 0.28)',
+        minLength: minSpan,
       });
       setTrimRegion({ start, end: time });
     }
