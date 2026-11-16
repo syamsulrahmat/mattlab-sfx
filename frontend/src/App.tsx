@@ -1490,14 +1490,7 @@ export default function App() {
                           />
                         ) : (
                           <span
-                            onDoubleClick={(e) => {
-                              e.stopPropagation();
-                              if (!isAdmin) return;
-                              setEditingId(item.id);
-                              setEditValue(item.display_name || item.filename);
-                            }}
-                            className={`font-semibold text-slate-100 ${isAdmin ? 'hover:text-indigo-300' : ''} transition truncate block text-xs sm:text-sm min-w-0 flex-1`}
-                            title={isAdmin ? "Double-click to rename" : undefined}
+                            className="font-semibold text-slate-100 transition truncate block text-xs sm:text-sm min-w-0 flex-1"
                           >
                             {item.display_name || item.filename}
                           </span>
