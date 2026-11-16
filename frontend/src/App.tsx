@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import WaveSurfer from 'wavesurfer.js';
 import RegionsPlugin from 'wavesurfer.js/dist/plugins/regions.esm.js';
-import { Play, Pause, Search, Volume2, Copy, Check, RefreshCw, Tag, X, Edit2, Wand2, Brain, Square, FolderOpen, Menu, ArrowUpDown, ArrowUp, ArrowDown, Download, Bookmark, FolderPlus, Trash2, Plus, Folder, ChevronDown, ChevronRight, AlertCircle, CheckCircle2, Info, Users, LogOut, Loader2, Scissors, Settings } from 'lucide-react';
+import { Play, Pause, Search, Volume2, Copy, Check, RefreshCw, Tag, X, Edit2, Wand2, Brain, Square, FolderOpen, Menu, ArrowUpDown, ArrowUp, ArrowDown, Download, Bookmark, FolderPlus, Trash2, Plus, Folder, ChevronDown, ChevronRight, AlertCircle, CheckCircle2, Info, Loader2, Scissors, Settings } from 'lucide-react';
 import { Logo } from './components/Logo';
 import { AudioPlayer } from './components/AudioPlayer';
 import { ProjectAssignModal, ProjectCollection } from './components/ProjectAssignModal';
@@ -1497,29 +1497,13 @@ export default function App() {
               </div>
             </div>
 
-            <div className="flex items-center gap-1 shrink-0">
+            <div className="flex items-center shrink-0">
               <button
                 onClick={() => setSettingsOpen(true)}
                 className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-700/70 transition cursor-pointer"
-                title="Playback & Scrub Settings [Hotkey: ,]"
+                title="Settings & Account [Hotkey: ,]"
               >
                 <Settings className="w-4 h-4" />
-              </button>
-              {isAdmin && (
-                <button
-                  onClick={() => setUserMgmtOpen(true)}
-                  className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-700/70 transition cursor-pointer"
-                  title="User Management"
-                >
-                  <Users className="w-4 h-4" />
-                </button>
-              )}
-              <button
-                onClick={logout}
-                className="p-1.5 rounded-lg text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 transition cursor-pointer"
-                title="Sign out"
-              >
-                <LogOut className="w-4 h-4" />
               </button>
             </div>
           </div>
@@ -2042,12 +2026,19 @@ export default function App() {
           onOpenSettings={() => setSettingsOpen(true)}
         />
 
-        {/* Playback & Scrub Settings Modal */}
+        {/* Settings & Preferences Modal */}
         <SettingsModal
           isOpen={settingsOpen}
           onClose={() => setSettingsOpen(false)}
           settings={settings}
           onSave={handleSaveSettings}
+          user={user}
+          isAdmin={isAdmin}
+          onOpenUserMgmt={() => {
+            setSettingsOpen(false);
+            setUserMgmtOpen(true);
+          }}
+          onLogout={logout}
         />
 
         {/* Project Assignment Modal */}
