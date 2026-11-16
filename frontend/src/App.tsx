@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import WaveSurfer from 'wavesurfer.js';
 import RegionsPlugin from 'wavesurfer.js/dist/plugins/regions.esm.js';
-import { Play, Pause, Search, Volume2, Copy, Check, RefreshCw, Tag, X, Edit2, Wand2, Brain, Square, FolderOpen, Menu, ArrowUpDown, ArrowUp, ArrowDown, Download, Bookmark, FolderPlus, Trash2, Plus, Folder, ChevronDown, ChevronRight, AlertCircle, CheckCircle2, Info, Loader2, Scissors, Settings } from 'lucide-react';
+import { Play, Pause, Search, Volume2, Copy, Check, RefreshCw, Tag, X, Edit2, Wand2, Brain, Square, FolderOpen, Menu, ArrowUpDown, ArrowUp, ArrowDown, Download, Bookmark, FolderPlus, Trash2, Plus, Folder, ChevronDown, ChevronRight, AlertCircle, CheckCircle2, Info, Loader2, Scissors, Settings, Film } from 'lucide-react';
 import { Logo } from './components/Logo';
 import { AudioPlayer } from './components/AudioPlayer';
 import { ProjectAssignModal, ProjectCollection } from './components/ProjectAssignModal';
@@ -12,6 +12,7 @@ import { LoginPage } from './components/LoginPage';
 import { UserManagementModal } from './components/UserManagementModal';
 import { ShortcutFooter } from './components/ShortcutFooter';
 import { SettingsModal, UserSettings, DEFAULT_SETTINGS } from './components/SettingsModal';
+import { StudioPage } from './components/studio/StudioPage';
 
 interface AudioItem {
   id: number;
@@ -30,6 +31,7 @@ interface AudioItem {
 
 export default function App() {
   const { user, isLoading: authLoading, logout, isAdmin } = useAuth();
+  const [currentView, setCurrentView] = useState<'library' | 'studio'>('library');
   const [userMgmtOpen, setUserMgmtOpen] = useState(false);
   const [query, setQuery] = useState('');
   const [category, setCategory] = useState('');
@@ -1141,6 +1143,10 @@ export default function App() {
     return <LoginPage />;
   }
 
+  if (currentView === 'studio') {
+    return <StudioPage onBackToLibrary={() => setCurrentView('library')} />;
+  }
+
   return (
     <div className="flex h-screen bg-slate-950 text-slate-100 font-sans overflow-hidden">
       {/* Mobile Drawer Backdrop */}
@@ -1157,7 +1163,7 @@ export default function App() {
           sidebarOpen ? 'translate-x-0 shadow-2xl' : '-translate-x-full'
         }`}
       >
-        <div className="flex items-center justify-between mb-4 px-2">
+        <div className="flex items-center justify-between mb-3 px-2">
           <Logo size={30} showText={true} />
           {/* Mobile Close Button */}
           <button
@@ -1166,6 +1172,34 @@ export default function App() {
             title="Close sidebar"
           >
             <X className="w-5 h-5" />
+          </button>
+        </div>
+
+        {/* Primary View Switcher: Library vs Studio */}
+        <div className="grid grid-cols-2 gap-1 p-1 bg-slate-950/80 border border-slate-800 rounded-xl mb-4 shrink-0">
+          <button
+            onClick={() => {
+              setCurrentView('library');
+              setSidebarOpen(false);
+            }}
+            className={`flex items-center justify-center gap-1.5 py-1.5 px-2 rounded-lg text-xs font-semibold transition cursor-pointer ${
+              currentView === 'library'
+                ? 'bg-indigo-600 text-white shadow-sm'
+                : 'text-slate-400 hover:text-white hover:bg-slate-800/60'
+            }`}
+          >
+            <Search className="w-3.5 h-3.5" />
+            <span>Library</span>
+          </button>
+          <button
+            onClick={() => {
+              setCurrentView('studio');
+              setSidebarOpen(false);
+            }}
+            className="flex items-center justify-center gap-1.5 py-1.5 px-2 rounded-lg text-xs font-semibold transition cursor-pointer text-slate-400 hover:text-white hover:bg-slate-800/60 group"
+          >
+            <Film className="w-3.5 h-3.5 text-amber-400 group-hover:scale-110 transition" />
+            <span>Studio Lab</span>
           </button>
         </div>
 
@@ -1574,6 +1608,16 @@ export default function App() {
                 <option value="id:desc">Sort: Newest Added</option>
               </select>
             </div>
+
+            {/* Quick Studio Lab Switcher */}
+            <button
+              onClick={() => setCurrentView('studio')}
+              className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-lg text-xs font-semibold bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-500 hover:to-indigo-500 text-white shadow-sm transition shrink-0 cursor-pointer"
+              title="Open Sound-to-Video Studio Lab"
+            >
+              <Film className="w-3.5 h-3.5 text-amber-300" />
+              <span className="hidden sm:inline">Studio Lab</span>
+            </button>
           </div>
 
           {/* Active Filter Pills (Project, Collection & Category) */}
