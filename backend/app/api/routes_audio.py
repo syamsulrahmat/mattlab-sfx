@@ -96,7 +96,7 @@ def download_audio(
     else:
         end = float(end)
 
-    if end <= start:
+    if (end - start) < 0.1:
         return FileResponse(
             path=file_path,
             filename=orig_filename,
