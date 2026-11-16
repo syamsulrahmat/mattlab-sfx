@@ -10,6 +10,7 @@ import { ContextMenu } from './components/ContextMenu';
 import { useAuth } from './context/AuthContext';
 import { LoginPage } from './components/LoginPage';
 import { UserManagementModal } from './components/UserManagementModal';
+import { ShortcutFooter } from './components/ShortcutFooter';
 
 interface AudioItem {
   id: number;
@@ -111,6 +112,7 @@ export default function App() {
   const [trimRegion, setTrimRegion] = useState<{ start: number; end: number } | null>(null);
   const trimRegionRef = useRef<{ start: number; end: number } | null>(null);
   trimRegionRef.current = trimRegion;
+  const [isSearching, setIsSearching] = useState(false);
 
   // WaveSurfer initialization helper
   const initWaveSurfer = (container: HTMLElement) => {
@@ -1461,6 +1463,8 @@ export default function App() {
                 placeholder={`Search ${roundedLibraryApprox}+ sound effects...`}
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
+                onFocus={() => setIsSearching(true)}
+                onBlur={() => setIsSearching(false)}
                 className="w-full bg-slate-800/80 border border-slate-700 rounded-lg pl-9 sm:pl-11 pr-3 sm:pr-24 py-2 text-xs sm:text-sm text-white placeholder-slate-400 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 truncate"
               />
               <div className="hidden sm:flex absolute right-3 top-2.5 items-center gap-1">
@@ -1934,6 +1938,16 @@ export default function App() {
           onOpenProjects={(item) => setAssignModalSound(item)}
           assignedProjectsCount={currentItem ? (projectAssignments[currentItem.id] || []).length : 0}
           isAdmin={isAdmin}
+        />
+
+        {/* Blender-Style Shortcut & Status Footer */}
+        <ShortcutFooter
+          hasSelectedSound={currentItem !== null}
+          isPlaying={isPlaying}
+          hasTrimRegion={trimRegion !== null && trimRegion.end > trimRegion.start}
+          isSearching={isSearching}
+          isLooping={isLooping}
+          isCollected={currentItem ? collectionIds.has(currentItem.id) : false}
         />
 
         {/* Project Assignment Modal */}
