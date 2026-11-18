@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
-import { Volume2, VolumeX, Trash2, ZoomIn, ZoomOut, Move, Sliders, Undo2, Redo2 } from 'lucide-react';
+import { Volume2, VolumeX, Trash2, ZoomIn, ZoomOut, Move, Sliders, Undo2, Redo2, Layers, AlertTriangle } from 'lucide-react';
 import { StudioTrack, StudioClip } from './types';
 import { ClipWaveform } from './ClipWaveform';
 
@@ -18,7 +18,14 @@ interface StudioTimelineProps {
   onSelectTrack: (trackId: number) => void;
   onSeek: (time: number) => void;
   onUpdateClip: (clipId: string, updates: Partial<StudioClip>) => void;
-  onCommitClipMove?: (clipId: string, initialStartTime: number, finalStartTime: number) => void;
+  onCommitClipMove?: (
+    clipId: string,
+    initialStartTime: number,
+    finalStartTime: number,
+    initialTrackId?: number,
+    finalTrackId?: number
+  ) => void;
+  onMoveClipToTrack?: (clipId: string, targetTrackId: number) => void;
   onDeleteClip: (clipId: string) => void;
   onToggleMute: (trackId: number) => void;
   onToggleSolo: (trackId: number) => void;
@@ -41,6 +48,7 @@ export const StudioTimeline: React.FC<StudioTimelineProps> = React.memo(({
   onSeek,
   onUpdateClip,
   onCommitClipMove,
+  onMoveClipToTrack,
   onDeleteClip,
   onToggleMute,
   onToggleSolo,
@@ -48,6 +56,7 @@ export const StudioTimeline: React.FC<StudioTimelineProps> = React.memo(({
 }) => {
   const [pps, setPps] = useState(60); // pixels per second
   const [draggingClipId, setDraggingClipId] = useState<string | null>(null);
+  const [layerMenuClipId, setLayerMenuClipId] = useState<string | null>(null);
   
   const timelineContainerRef = useRef<HTMLDivElement | null>(null);
   const timelineRef = useRef<HTMLDivElement | null>(null);
@@ -165,38 +174,90 @@ export const StudioTimeline: React.FC<StudioTimelineProps> = React.memo(({
     window.addEventListener('mouseup', handleMouseUp);
   };
 
-  // Dragging clip along time axis
+  // Dragging clip along time axis and vertically across track layers
   const handleClipMouseDown = (clip: StudioClip, e: React.MouseEvent) => {
     e.stopPropagation();
     setDraggingClipId(clip.id);
+    setLayerMenuClipId(null);
     const initialStartTime = clip.startTime;
-    dragStartRef.current = {
-      startX: e.clientX,
-      initialTime: clip.startTime,
-    };
+    const initialTrackId = clip.trackId;
+    const startX = e.clientX;
+    const startY = e.clientY;
 
     let latestStartTime = clip.startTime;
+    let latestTrackId = clip.trackId;
 
     const handleMouseMove = (moveEvent: MouseEvent) => {
-      const deltaX = moveEvent.clientX - dragStartRef.current.startX;
+      const deltaX = moveEvent.clientX - startX;
       const deltaTime = deltaX / pps;
-      const newStartTime = Math.max(0, parseFloat((dragStartRef.current.initialTime + deltaTime).toFixed(3)));
+      const newStartTime = Math.max(0, parseFloat((initialStartTime + deltaTime).toFixed(3)));
+
+      const deltaY = moveEvent.clientY - startY;
+      const trackDelta = Math.round(deltaY / 64); // 64px is h-16
+      const newTrackId = Math.max(0, Math.min(tracks.length - 1, initialTrackId + trackDelta));
+
       latestStartTime = newStartTime;
-      onUpdateClip(clip.id, { startTime: newStartTime });
+      latestTrackId = newTrackId;
+      onUpdateClip(clip.id, { startTime: newStartTime, trackId: newTrackId });
     };
 
     const handleMouseUp = () => {
       setDraggingClipId(null);
       window.removeEventListener('mousemove', handleMouseMove);
       window.removeEventListener('mouseup', handleMouseUp);
-      if (onCommitClipMove && latestStartTime !== initialStartTime) {
-        onCommitClipMove(clip.id, initialStartTime, latestStartTime);
+      if (onCommitClipMove && (latestStartTime !== initialStartTime || latestTrackId !== initialTrackId)) {
+        onCommitClipMove(clip.id, initialStartTime, latestStartTime, initialTrackId, latestTrackId);
       }
     };
 
     window.addEventListener('mousemove', handleMouseMove);
     window.addEventListener('mouseup', handleMouseUp);
   };
+
+  // Helper to compute sub-row positioning and overlap detection for clips on a track
+  const layoutTrackClips = useCallback((trackClips: StudioClip[]) => {
+    if (trackClips.length <= 1) {
+      return trackClips.map((c) => ({ clip: c, row: 0, hasOverlap: false }));
+    }
+
+    // Sort by startTime
+    const sorted = [...trackClips].sort((a, b) => a.startTime - b.startTime);
+    const endTimes = [0, 0];
+    const overlapMap = new Map<string, { row: number; hasOverlap: boolean }>();
+
+    let anyOverlap = false;
+    for (let i = 0; i < sorted.length; i++) {
+      for (let j = i + 1; j < sorted.length; j++) {
+        const c1 = sorted[i];
+        const c2 = sorted[j];
+        if (c1.startTime < c2.startTime + c2.duration && c2.startTime < c1.startTime + c1.duration) {
+          anyOverlap = true;
+          break;
+        }
+      }
+      if (anyOverlap) break;
+    }
+
+    if (!anyOverlap) {
+      return sorted.map((c) => ({ clip: c, row: 0, hasOverlap: false }));
+    }
+
+    sorted.forEach((c) => {
+      const clipEnd = c.startTime + c.duration;
+      let chosenRow = 0;
+      if (c.startTime < endTimes[0]) {
+        chosenRow = 1;
+      }
+      endTimes[chosenRow] = Math.max(endTimes[chosenRow], clipEnd);
+      overlapMap.set(c.id, { row: chosenRow, hasOverlap: true });
+    });
+
+    return sorted.map((c) => ({
+      clip: c,
+      row: overlapMap.get(c.id)?.row ?? 0,
+      hasOverlap: overlapMap.get(c.id)?.hasOverlap ?? false,
+    }));
+  }, []);
 
   // Non-passive native wheel listener to zoom timeline and 100% stop browser page zoom
   useEffect(() => {
@@ -444,11 +505,13 @@ export const StudioTimeline: React.FC<StudioTimelineProps> = React.memo(({
               {tracks.map((track) => {
                 const trackClips = clips.filter((c) => c.trackId === track.id);
                 const isSelected = selectedTrackId === track.id;
+                const positionedClips = layoutTrackClips(trackClips);
 
                 return (
                   <div
                     key={track.id}
                     onMouseDown={(e) => {
+                      setLayerMenuClipId(null);
                       onSelectTrack(track.id);
                       handleScrubStart(e);
                     }}
@@ -456,11 +519,17 @@ export const StudioTimeline: React.FC<StudioTimelineProps> = React.memo(({
                       isSelected ? 'bg-slate-900/40' : 'bg-transparent'
                     }`}
                   >
-                    {/* Render Clips with Real Audio Waveform Background */}
-                    {trackClips.map((clip) => {
+                    {/* Render Clips with Real Audio Waveform Background and Sub-Row Staggering */}
+                    {positionedClips.map(({ clip, row, hasOverlap }) => {
                       const clipLeft = clip.startTime * pps;
                       const clipWidth = Math.max(30, clip.duration * pps);
                       const isDragging = draggingClipId === clip.id;
+                      const isStaggered = hasOverlap;
+                      const verticalClass = !isStaggered
+                        ? 'top-1.5 bottom-1.5'
+                        : row === 0
+                        ? 'top-1 h-[27px]'
+                        : 'bottom-1 h-[27px]';
 
                       return (
                         <div
@@ -470,38 +539,107 @@ export const StudioTimeline: React.FC<StudioTimelineProps> = React.memo(({
                             width: `${clipWidth}px`,
                           }}
                           onMouseDown={(e) => handleClipMouseDown(clip, e)}
-                          className={`absolute top-1.5 bottom-1.5 rounded-lg border shadow-md flex flex-col justify-between p-1.5 cursor-grab active:cursor-grabbing transition-shadow overflow-hidden group select-none ${
+                          className={`absolute ${verticalClass} rounded-lg border shadow-md flex flex-col justify-between p-1 cursor-grab active:cursor-grabbing transition-all overflow-hidden group select-none ${
                             track.colorClip
-                          } ${isDragging ? 'opacity-80 scale-[0.99] ring-2 ring-white' : ''}`}
+                          } ${isDragging ? 'opacity-80 scale-[0.99] ring-2 ring-white z-40' : 'z-10'} ${
+                            hasOverlap ? 'ring-1 ring-amber-400/80 border-amber-500/70' : ''
+                          }`}
                         >
                           {/* Audio Waveform Background */}
                           <ClipWaveform soundId={clip.soundId} />
 
-                          {/* Clip Header: Title + Delete */}
-                          <div className="flex items-center justify-between gap-1 z-10">
-                            <span
-                              className="text-[10px] font-bold truncate leading-tight drop-shadow-[0_1px_2px_rgba(0,0,0,0.8)] text-white"
-                              title={clip.name}
-                            >
-                              {clip.name}
-                            </span>
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                onDeleteClip(clip.id);
-                              }}
-                              className="p-0.5 rounded hover:bg-black/50 text-white/80 hover:text-white transition cursor-pointer"
-                              title="Delete Clip"
-                            >
-                              <Trash2 className="w-2.5 h-2.5" />
-                            </button>
+                          {/* Clip Header: Title + Overlap Alert + Layer Selector + Delete */}
+                          <div className="flex items-center justify-between gap-1 z-10 w-full">
+                            <div className="flex items-center gap-1 min-w-0">
+                              <span
+                                className="text-[9px] sm:text-[10px] font-bold truncate leading-tight drop-shadow-[0_1px_2px_rgba(0,0,0,0.8)] text-white"
+                                title={clip.name}
+                              >
+                                {clip.name}
+                              </span>
+                              {hasOverlap && (
+                                <span
+                                  className="px-1 py-0.2 bg-amber-500 text-slate-950 font-black text-[7px] rounded uppercase shrink-0 animate-pulse hidden sm:inline"
+                                  title="Clips overlap on this layer! Drag vertically or click layer badge to move."
+                                >
+                                  Overlap
+                                </span>
+                              )}
+                            </div>
+
+                            <div className="flex items-center gap-1 shrink-0">
+                              {/* Quick Layer Switcher Badge */}
+                              <div className="relative">
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setLayerMenuClipId(layerMenuClipId === clip.id ? null : clip.id);
+                                  }}
+                                  className={`px-1 py-0.5 rounded text-[8px] font-mono font-bold border transition cursor-pointer flex items-center gap-0.5 ${
+                                    track.colorBg
+                                  } ${track.colorText} ${track.colorBorder} hover:brightness-125`}
+                                  title={`Assigned to ${track.tag} (${track.name}). Click to move layer.`}
+                                >
+                                  <Layers className="w-2.5 h-2.5" />
+                                  <span>{track.tag}</span>
+                                </button>
+
+                                {/* Layer Popover Menu */}
+                                {layerMenuClipId === clip.id && (
+                                  <div
+                                    onClick={(e) => e.stopPropagation()}
+                                    className="absolute right-0 top-full mt-1 z-50 bg-slate-900 border border-slate-700 rounded-lg shadow-2xl p-1.5 flex flex-col gap-1 w-36 animate-in fade-in zoom-in-95"
+                                  >
+                                    <div className="text-[9px] font-semibold text-slate-400 px-1 border-b border-slate-800 pb-0.5">
+                                      Move to Layer:
+                                    </div>
+                                    {tracks.map((t) => (
+                                      <button
+                                        key={t.id}
+                                        onClick={() => {
+                                          if (onMoveClipToTrack) {
+                                            onMoveClipToTrack(clip.id, t.id);
+                                          } else {
+                                            onUpdateClip(clip.id, { trackId: t.id });
+                                          }
+                                          setLayerMenuClipId(null);
+                                        }}
+                                        className={`flex items-center gap-1.5 px-1.5 py-1 rounded text-[10px] font-medium transition cursor-pointer text-left ${
+                                          clip.trackId === t.id
+                                            ? 'bg-indigo-600/30 text-indigo-200 font-bold'
+                                            : 'hover:bg-slate-800 text-slate-300'
+                                        }`}
+                                      >
+                                        <span className={`px-1 py-0.2 rounded text-[8px] font-mono font-bold ${t.colorBg} ${t.colorText} border ${t.colorBorder}`}>
+                                          {t.tag}
+                                        </span>
+                                        <span className="truncate">{t.name}</span>
+                                      </button>
+                                    ))}
+                                  </div>
+                                )}
+                              </div>
+
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  onDeleteClip(clip.id);
+                                }}
+                                className="p-0.5 rounded hover:bg-black/50 text-white/80 hover:text-white transition cursor-pointer"
+                                title="Delete Clip"
+                              >
+                                <Trash2 className="w-2.5 h-2.5" />
+                              </button>
+                            </div>
                           </div>
 
-                          {/* Clip Footer: Start Time & Duration */}
-                          <div className="flex items-center justify-between text-[8px] font-mono opacity-90 z-10 drop-shadow-[0_1px_1px_rgba(0,0,0,0.8)] text-white/90">
-                            <span>{clip.startTime.toFixed(2)}s</span>
-                            <span>{clip.duration.toFixed(1)}s</span>
-                          </div>
+                          {/* Clip Footer: Start Time & Duration (shown when full height) */}
+                          {!isStaggered && (
+                            <div className="flex items-center justify-between text-[8px] font-mono opacity-90 z-10 drop-shadow-[0_1px_1px_rgba(0,0,0,0.8)] text-white/90">
+                              <span>{clip.startTime.toFixed(2)}s</span>
+                              <span>{clip.duration.toFixed(1)}s</span>
+                            </div>
+                          )}
                         </div>
                       );
                     })}

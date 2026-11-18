@@ -93,7 +93,8 @@ export const StudioPalette: React.FC<StudioPaletteProps> = React.memo(({
       const activeTag = (document.activeElement?.tagName || '').toLowerCase();
       if (activeTag === 'input' || activeTag === 'textarea') return;
 
-      if (e.key === 's' || e.key === 'S') {
+      // Spot Sound only on plain 's' or 'S' without ANY modifier keys (Ctrl, Alt, Shift, Meta)
+      if ((e.key === 's' || e.key === 'S') && !e.ctrlKey && !e.altKey && !e.shiftKey && !e.metaKey) {
         const activeSound = results.find((r) => r.id === selectedSoundId) || results[0];
         if (activeSound) {
           e.preventDefault();
