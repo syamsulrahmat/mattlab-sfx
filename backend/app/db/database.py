@@ -206,4 +206,23 @@ def init_db():
             );
         """)
 
+        # Studio Lab Projects table
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS studio_projects (
+                id TEXT PRIMARY KEY,
+                user_id INTEGER DEFAULT 1,
+                title TEXT NOT NULL,
+                video_filename TEXT DEFAULT '',
+                video_duration REAL DEFAULT 0,
+                video_fps REAL DEFAULT 24.0,
+                tracks_json TEXT NOT NULL DEFAULT '[]',
+                clips_json TEXT NOT NULL DEFAULT '[]',
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+            );
+        """)
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_studio_projects_user ON studio_projects(user_id);")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_studio_projects_updated ON studio_projects(updated_at);")
+
     conn.close()

@@ -75,3 +75,28 @@ export const DEFAULT_TRACKS: StudioTrack[] = [
     volume: 1.0,
   },
 ];
+
+export interface StudioProject {
+  id: string;
+  title: string;
+  video_filename?: string;
+  video_duration?: number;
+  video_fps?: number;
+  tracks: StudioTrack[];
+  clips: StudioClip[];
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface StudioProjectSummary {
+  id: string;
+  user_id: number;
+  title: string;
+  video_filename: string;
+  video_duration: number;
+  video_fps: number;
+  clip_count: number;
+  track_count: number;
+  created_at: string;
+  updated_at: string;
+}
