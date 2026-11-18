@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
-import { Volume2, VolumeX, Trash2, ZoomIn, ZoomOut, Move, Sliders } from 'lucide-react';
+import { Volume2, VolumeX, Trash2, ZoomIn, ZoomOut, Move, Sliders, Undo2, Redo2 } from 'lucide-react';
 import { StudioTrack, StudioClip } from './types';
 import { ClipWaveform } from './ClipWaveform';
 
@@ -11,9 +11,14 @@ interface StudioTimelineProps {
   selectedTrackId: number;
   videoRef?: React.RefObject<HTMLVideoElement | null>;
   isPlaying?: boolean;
+  canUndo?: boolean;
+  canRedo?: boolean;
+  onUndo?: () => void;
+  onRedo?: () => void;
   onSelectTrack: (trackId: number) => void;
   onSeek: (time: number) => void;
   onUpdateClip: (clipId: string, updates: Partial<StudioClip>) => void;
+  onCommitClipMove?: (clipId: string, initialStartTime: number, finalStartTime: number) => void;
   onDeleteClip: (clipId: string) => void;
   onToggleMute: (trackId: number) => void;
   onToggleSolo: (trackId: number) => void;
@@ -28,9 +33,14 @@ export const StudioTimeline: React.FC<StudioTimelineProps> = React.memo(({
   selectedTrackId,
   videoRef,
   isPlaying = false,
+  canUndo = false,
+  canRedo = false,
+  onUndo,
+  onRedo,
   onSelectTrack,
   onSeek,
   onUpdateClip,
+  onCommitClipMove,
   onDeleteClip,
   onToggleMute,
   onToggleSolo,
@@ -39,6 +49,7 @@ export const StudioTimeline: React.FC<StudioTimelineProps> = React.memo(({
   const [pps, setPps] = useState(60); // pixels per second
   const [draggingClipId, setDraggingClipId] = useState<string | null>(null);
   
+  const timelineContainerRef = useRef<HTMLDivElement | null>(null);
   const timelineRef = useRef<HTMLDivElement | null>(null);
   const playheadRef = useRef<HTMLDivElement | null>(null);
   const dragStartRef = useRef<{ startX: number; initialTime: number }>({ startX: 0, initialTime: 0 });
@@ -60,26 +71,33 @@ export const StudioTimeline: React.FC<StudioTimelineProps> = React.memo(({
   const zoomOut = useCallback(() => setPps((prev) => Math.max(20, prev - 15)), []);
   const zoomReset = useCallback(() => setPps(60), []);
 
-  // Zoom keyboard shortcuts (+ / - / 0)
+  // Zoom keyboard shortcuts (+ / - / 0) with capture: true to prevent browser native zoom
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       const activeTag = (document.activeElement?.tagName || '').toLowerCase();
       if (activeTag === 'input' || activeTag === 'textarea') return;
 
-      if (e.key === '=' || e.key === '+') {
+      const isZoomIn = e.key === '=' || e.key === '+' || e.code === 'Equal' || e.code === 'NumpadAdd';
+      const isZoomOut = e.key === '-' || e.key === '_' || e.code === 'Minus' || e.code === 'NumpadSubtract';
+      const isZoomReset = (e.key === '0' || e.code === 'Digit0' || e.code === 'Numpad0') && (e.ctrlKey || e.metaKey);
+
+      if (isZoomIn) {
         e.preventDefault();
+        e.stopPropagation();
         zoomIn();
-      } else if (e.key === '-' || e.key === '_') {
+      } else if (isZoomOut) {
         e.preventDefault();
+        e.stopPropagation();
         zoomOut();
-      } else if (e.key === '0' && (e.ctrlKey || e.metaKey)) {
+      } else if (isZoomReset) {
         e.preventDefault();
+        e.stopPropagation();
         zoomReset();
       }
     };
 
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
+    window.addEventListener('keydown', handleKeyDown, { capture: true });
+    return () => window.removeEventListener('keydown', handleKeyDown, { capture: true });
   }, [zoomIn, zoomOut, zoomReset]);
 
   // 60fps / 120fps GPU-accelerated playhead movement via requestAnimationFrame
@@ -151,15 +169,19 @@ export const StudioTimeline: React.FC<StudioTimelineProps> = React.memo(({
   const handleClipMouseDown = (clip: StudioClip, e: React.MouseEvent) => {
     e.stopPropagation();
     setDraggingClipId(clip.id);
+    const initialStartTime = clip.startTime;
     dragStartRef.current = {
       startX: e.clientX,
       initialTime: clip.startTime,
     };
 
+    let latestStartTime = clip.startTime;
+
     const handleMouseMove = (moveEvent: MouseEvent) => {
       const deltaX = moveEvent.clientX - dragStartRef.current.startX;
       const deltaTime = deltaX / pps;
       const newStartTime = Math.max(0, parseFloat((dragStartRef.current.initialTime + deltaTime).toFixed(3)));
+      latestStartTime = newStartTime;
       onUpdateClip(clip.id, { startTime: newStartTime });
     };
 
@@ -167,27 +189,43 @@ export const StudioTimeline: React.FC<StudioTimelineProps> = React.memo(({
       setDraggingClipId(null);
       window.removeEventListener('mousemove', handleMouseMove);
       window.removeEventListener('mouseup', handleMouseUp);
+      if (onCommitClipMove && latestStartTime !== initialStartTime) {
+        onCommitClipMove(clip.id, initialStartTime, latestStartTime);
+      }
     };
 
     window.addEventListener('mousemove', handleMouseMove);
     window.addEventListener('mouseup', handleMouseUp);
   };
 
-  // Ctrl/Cmd + Wheel zoom on the timeline canvas
-  const handleWheel = (e: React.WheelEvent) => {
-    if (e.ctrlKey || e.metaKey || e.altKey) {
-      e.preventDefault();
-      if (e.deltaY < 0) {
-        zoomIn();
-      } else {
-        zoomOut();
+  // Non-passive native wheel listener to zoom timeline and 100% stop browser page zoom
+  useEffect(() => {
+    const el = timelineContainerRef.current;
+    if (!el) return;
+
+    const handleNativeWheel = (e: WheelEvent) => {
+      // Zoom if Ctrl, Meta (Cmd), or Alt is held
+      if (e.ctrlKey || e.metaKey || e.altKey) {
+        e.preventDefault();
+        e.stopPropagation();
+        if (e.deltaY < 0) {
+          zoomIn();
+        } else {
+          zoomOut();
+        }
       }
-    }
-  };
+    };
+
+    // { passive: false } is MANDATORY so e.preventDefault() actually stops native browser zoom
+    el.addEventListener('wheel', handleNativeWheel, { passive: false });
+    return () => {
+      el.removeEventListener('wheel', handleNativeWheel);
+    };
+  }, [zoomIn, zoomOut]);
 
   return (
     <div
-      onWheel={handleWheel}
+      ref={timelineContainerRef}
       className="flex flex-col h-full bg-slate-950/70 select-none overflow-hidden border-t border-slate-800"
     >
       {/* Timeline Toolbar */}
@@ -201,31 +239,60 @@ export const StudioTimeline: React.FC<StudioTimelineProps> = React.memo(({
           </span>
         </div>
 
-        {/* Zoom Controls with Shortcut Badges */}
-        <div className="flex items-center gap-1.5">
-          <button
-            onClick={zoomOut}
-            className="flex items-center gap-1 px-1.5 py-1 rounded text-slate-400 hover:text-white hover:bg-slate-800 transition cursor-pointer"
-            title="Zoom Out [-]"
-          >
-            <ZoomOut className="w-3.5 h-3.5" />
-            <kbd className="text-[9px] font-mono px-1 rounded bg-slate-800 text-slate-400 border border-slate-700">-</kbd>
-          </button>
-          <button
-            onClick={zoomReset}
-            className="text-[10px] text-slate-400 hover:text-white font-mono px-1.5 py-0.5 rounded hover:bg-slate-800 transition cursor-pointer"
-            title="Reset Zoom to 60px/s [Ctrl+0]"
-          >
-            {pps}px/s
-          </button>
-          <button
-            onClick={zoomIn}
-            className="flex items-center gap-1 px-1.5 py-1 rounded text-slate-400 hover:text-white hover:bg-slate-800 transition cursor-pointer"
-            title="Zoom In [+]"
-          >
-            <ZoomIn className="w-3.5 h-3.5" />
-            <kbd className="text-[9px] font-mono px-1 rounded bg-slate-800 text-slate-400 border border-slate-700">+</kbd>
-          </button>
+        {/* Right side controls: Undo/Redo & Zoom Controls */}
+        <div className="flex items-center gap-2">
+          {/* Undo / Redo Controls */}
+          <div className="flex items-center gap-0.5 border-r border-slate-800 pr-2">
+            <button
+              onClick={onUndo}
+              disabled={!canUndo}
+              className={`flex items-center gap-1 px-1.5 py-1 rounded text-slate-400 hover:text-white hover:bg-slate-800 transition cursor-pointer ${
+                !canUndo ? 'opacity-30 pointer-events-none' : ''
+              }`}
+              title="Undo [Ctrl+Z]"
+            >
+              <Undo2 className="w-3.5 h-3.5" />
+              <span className="text-[10px] hidden sm:inline">Undo</span>
+            </button>
+            <button
+              onClick={onRedo}
+              disabled={!canRedo}
+              className={`flex items-center gap-1 px-1.5 py-1 rounded text-slate-400 hover:text-white hover:bg-slate-800 transition cursor-pointer ${
+                !canRedo ? 'opacity-30 pointer-events-none' : ''
+              }`}
+              title="Redo [Ctrl+Shift+Z / Ctrl+Y]"
+            >
+              <Redo2 className="w-3.5 h-3.5" />
+              <span className="text-[10px] hidden sm:inline">Redo</span>
+            </button>
+          </div>
+
+          {/* Zoom Controls with Shortcut Badges */}
+          <div className="flex items-center gap-1">
+            <button
+              onClick={zoomOut}
+              className="flex items-center gap-1 px-1.5 py-1 rounded text-slate-400 hover:text-white hover:bg-slate-800 transition cursor-pointer"
+              title="Zoom Out [- / _]"
+            >
+              <ZoomOut className="w-3.5 h-3.5" />
+              <kbd className="text-[9px] font-mono px-1 rounded bg-slate-800 text-slate-400 border border-slate-700">-</kbd>
+            </button>
+            <button
+              onClick={zoomReset}
+              className="text-[10px] text-slate-400 hover:text-white font-mono px-1.5 py-0.5 rounded hover:bg-slate-800 transition cursor-pointer"
+              title="Reset Zoom to 60px/s [Ctrl+0]"
+            >
+              {pps}px/s
+            </button>
+            <button
+              onClick={zoomIn}
+              className="flex items-center gap-1 px-1.5 py-1 rounded text-slate-400 hover:text-white hover:bg-slate-800 transition cursor-pointer"
+              title="Zoom In [+ / =]"
+            >
+              <ZoomIn className="w-3.5 h-3.5" />
+              <kbd className="text-[9px] font-mono px-1 rounded bg-slate-800 text-slate-400 border border-slate-700">+</kbd>
+            </button>
+          </div>
         </div>
       </div>
 
