@@ -15,7 +15,7 @@ interface StudioPaletteProps {
   selectedTrackTag: string;
 }
 
-export const StudioPalette: React.FC<StudioPaletteProps> = ({
+export const StudioPalette: React.FC<StudioPaletteProps> = React.memo(({
   onSpotSound,
   selectedTrackTag,
 }) => {
@@ -278,4 +278,4 @@ export const StudioPalette: React.FC<StudioPaletteProps> = ({
       </div>
     </div>
   );
-};
+});

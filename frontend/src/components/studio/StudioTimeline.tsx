@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { Volume2, VolumeX, Trash2, ZoomIn, ZoomOut, Move, Sliders } from 'lucide-react';
 import { StudioTrack, StudioClip } from './types';
 
@@ -17,7 +17,7 @@ interface StudioTimelineProps {
   onUpdateTrackVolume: (trackId: number, volume: number) => void;
 }
 
-export const StudioTimeline: React.FC<StudioTimelineProps> = ({
+export const StudioTimeline: React.FC<StudioTimelineProps> = React.memo(({
   tracks,
   clips,
   currentTime,
@@ -40,10 +40,12 @@ export const StudioTimeline: React.FC<StudioTimelineProps> = ({
   const timelineDuration = Math.max(duration || 10, 15);
   const totalWidth = Math.max(800, timelineDuration * pps + 100);
 
-  // Time ruler ticks
-  const tickInterval = pps < 50 ? 5 : pps < 100 ? 2 : 1;
-  const numTicks = Math.ceil(timelineDuration / tickInterval);
-  const ticks = Array.from({ length: numTicks + 1 }, (_, i) => i * tickInterval);
+  // Time ruler ticks (memoized to eliminate frame garbage collection churn)
+  const ticks = useMemo(() => {
+    const tickInterval = pps < 50 ? 5 : pps < 100 ? 2 : 1;
+    const numTicks = Math.ceil(timelineDuration / tickInterval);
+    return Array.from({ length: numTicks + 1 }, (_, i) => i * tickInterval);
+  }, [timelineDuration, pps]);
 
   // Real-time Scrubbing Drag (both clicking & dragging across ruler or playhead)
   const handleScrubStart = (e: React.MouseEvent) => {
@@ -350,4 +352,4 @@ export const StudioTimeline: React.FC<StudioTimelineProps> = ({
       </div>
     </div>
   );
-};
+});

@@ -54,8 +54,6 @@ export const StudioPage: React.FC<StudioPageProps> = ({ onBackToLibrary }) => {
   const audioCtxRef = useRef<AudioContext | null>(null);
   const activeSourcesRef = useRef<Map<string, { source: AudioBufferSourceNode; gain: GainNode }>>(new Map());
   const cachedBuffersRef = useRef<Map<number, AudioBuffer>>(new Map());
-  const seekRafRef = useRef<number | null>(null);
-  const pendingSeekTimeRef = useRef<number | null>(null);
 
   // Initialize or get AudioContext
   const getAudioContext = useCallback(() => {
@@ -182,13 +180,29 @@ export const StudioPage: React.FC<StudioPageProps> = ({ onBackToLibrary }) => {
   };
 
   // Synchronized Play/Pause
-  const togglePlay = () => {
-    if (!videoRef.current) return;
-    if (videoRef.current.paused) {
-      getAudioContext();
-      videoRef.current.play();
+  const togglePlay = async () => {
+    const video = videoRef.current;
+    if (!video) return;
+
+    if (video.paused) {
+      try {
+        const audioCtx = getAudioContext();
+        if (audioCtx.state === 'suspended') {
+          await audioCtx.resume();
+        }
+        // If at the end of video, restart from beginning
+        if (video.duration && video.currentTime >= video.duration - 0.05) {
+          video.currentTime = 0;
+          setCurrentTime(0);
+        }
+        await video.play();
+      } catch (err) {
+        console.warn('Video play interrupted or blocked:', err);
+        setIsPlaying(false);
+        stopAllAudioSources();
+      }
     } else {
-      videoRef.current.pause();
+      video.pause();
     }
   };
 
@@ -205,25 +219,8 @@ export const StudioPage: React.FC<StudioPageProps> = ({ onBackToLibrary }) => {
     stopAllAudioSources();
   };
 
-  // 60fps Playhead animation loop during video playback
-  useEffect(() => {
-    let animId: number;
-    if (isPlaying) {
-      const loop = () => {
-        if (videoRef.current) {
-          setCurrentTime(videoRef.current.currentTime);
-        }
-        animId = requestAnimationFrame(loop);
-      };
-      animId = requestAnimationFrame(loop);
-    }
-    return () => {
-      if (animId) cancelAnimationFrame(animId);
-    };
-  }, [isPlaying]);
-
   const handleTimeUpdate = () => {
-    if (videoRef.current && !isPlaying) {
+    if (videoRef.current) {
       setCurrentTime(videoRef.current.currentTime);
     }
   };
@@ -239,38 +236,27 @@ export const StudioPage: React.FC<StudioPageProps> = ({ onBackToLibrary }) => {
     }
   };
 
-  // Fluid 60fps playhead scrubbing with throttled video decoding
   const handleSeek = (newTime: number) => {
-    // 1. Immediately update local state so playhead tracks cursor at 60fps without lag
-    setCurrentTime(newTime);
-    pendingSeekTimeRef.current = newTime;
+    const video = videoRef.current;
+    if (!video) return;
 
-    // 2. Throttle the heavier <video> seek via requestAnimationFrame
-    if (seekRafRef.current === null) {
-      seekRafRef.current = requestAnimationFrame(() => {
-        seekRafRef.current = null;
-        if (videoRef.current && pendingSeekTimeRef.current !== null) {
-          const target = pendingSeekTimeRef.current;
-          if ('fastSeek' in videoRef.current) {
-            try {
-              (videoRef.current as any).fastSeek(target);
-            } catch {
-              videoRef.current.currentTime = target;
-            }
-          } else {
-            videoRef.current.currentTime = target;
-          }
-        }
-      });
+    const clampedTime = Math.max(0, Math.min(duration || 0, newTime));
+    setCurrentTime(clampedTime);
+
+    try {
+      video.currentTime = clampedTime;
+    } catch (e) {
+      console.warn('Error seeking video:', e);
     }
   };
 
   const handleStepFrame = (deltaFrames: number) => {
-    if (!videoRef.current) return;
-    videoRef.current.pause();
+    const video = videoRef.current;
+    if (!video) return;
+    video.pause();
     const frameDuration = 1 / fps;
-    const newTime = Math.max(0, Math.min(duration, videoRef.current.currentTime + deltaFrames * frameDuration));
-    videoRef.current.currentTime = newTime;
+    const newTime = Math.max(0, Math.min(duration || 0, video.currentTime + deltaFrames * frameDuration));
+    video.currentTime = newTime;
     setCurrentTime(newTime);
   };
 
@@ -601,8 +587,11 @@ export const StudioPage: React.FC<StudioPageProps> = ({ onBackToLibrary }) => {
                 <video
                   ref={videoRef}
                   src={videoSrc}
+                  playsInline
+                  preload="auto"
                   onPlay={handlePlay}
                   onPause={handlePause}
+                  onWaiting={() => stopAllAudioSources()}
                   onTimeUpdate={handleTimeUpdate}
                   onSeeked={handleSeeked}
                   onLoadedMetadata={() => {
