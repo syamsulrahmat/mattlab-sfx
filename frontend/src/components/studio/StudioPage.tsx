@@ -46,6 +46,19 @@ export const StudioPage: React.FC<StudioPageProps> = ({ onBackToLibrary }) => {
   const [selectedTrackId, setSelectedTrackId] = useState<number>(0);
   const [paletteOpen, setPaletteOpen] = useState(true);
 
+  // Undo / Redo History Stack (up to 50 steps)
+  const clipsRef = useRef<StudioClip[]>([]);
+  clipsRef.current = clips;
+  const pastRef = useRef<StudioClip[][]>([]);
+  const futureRef = useRef<StudioClip[][]>([]);
+  const [canUndo, setCanUndo] = useState(false);
+  const [canRedo, setCanRedo] = useState(false);
+
+  const updateUndoRedoState = useCallback(() => {
+    setCanUndo(pastRef.current.length > 0);
+    setCanRedo(futureRef.current.length > 0);
+  }, []);
+
   // Exporting state
   const [isExportingWav, setIsExportingWav] = useState(false);
   const [isExportingVideo, setIsExportingVideo] = useState(false);
@@ -101,6 +114,58 @@ export const StudioPage: React.FC<StudioPageProps> = ({ onBackToLibrary }) => {
     });
     activeSourcesRef.current.clear();
   }, []);
+
+  // History Actions: Push, Commit Move, Undo, Redo
+  const pushClipsWithHistory = useCallback((nextClips: StudioClip[]) => {
+    pastRef.current.push(clipsRef.current);
+    if (pastRef.current.length > 50) {
+      pastRef.current.shift();
+    }
+    futureRef.current = [];
+    setClips(nextClips);
+    updateUndoRedoState();
+  }, [updateUndoRedoState]);
+
+  const handleCommitClipMove = useCallback((clipId: string, initialStartTime: number, finalStartTime: number) => {
+    if (initialStartTime === finalStartTime) return;
+    const beforeClips = clipsRef.current.map((c) =>
+      c.id === clipId ? { ...c, startTime: initialStartTime } : c
+    );
+    pastRef.current.push(beforeClips);
+    if (pastRef.current.length > 50) {
+      pastRef.current.shift();
+    }
+    futureRef.current = [];
+    updateUndoRedoState();
+  }, [updateUndoRedoState]);
+
+  const handleUndo = useCallback(() => {
+    if (pastRef.current.length === 0) return;
+    const previous = pastRef.current.pop()!;
+    futureRef.current.push(clipsRef.current);
+    setClips(previous);
+    stopAllAudioSources();
+    updateUndoRedoState();
+    setStatusMessage({
+      text: `Undo (${previous.length} clips on timeline)`,
+      type: 'info',
+    });
+    setTimeout(() => setStatusMessage(null), 1500);
+  }, [stopAllAudioSources, updateUndoRedoState]);
+
+  const handleRedo = useCallback(() => {
+    if (futureRef.current.length === 0) return;
+    const next = futureRef.current.pop()!;
+    pastRef.current.push(clipsRef.current);
+    setClips(next);
+    stopAllAudioSources();
+    updateUndoRedoState();
+    setStatusMessage({
+      text: `Redo (${next.length} clips on timeline)`,
+      type: 'info',
+    });
+    setTimeout(() => setStatusMessage(null), 1500);
+  }, [stopAllAudioSources, updateUndoRedoState]);
 
   // Schedule audio clips starting from specified video playback position
   const scheduleAudioPlayback = useCallback((startPos: number) => {
@@ -278,7 +343,7 @@ export const StudioPage: React.FC<StudioPageProps> = ({ onBackToLibrary }) => {
       category: sound.category,
     };
 
-    setClips((prev) => [...prev, newClip]);
+    pushClipsWithHistory([...clipsRef.current, newClip]);
     // Pre-decode audio buffer in background
     loadAudioBuffer(sound.id);
 
@@ -289,11 +354,30 @@ export const StudioPage: React.FC<StudioPageProps> = ({ onBackToLibrary }) => {
     setTimeout(() => setStatusMessage(null), 2500);
   };
 
-  // Keyboard shortcut listener for Space (play/pause) and S (spot)
+  // Keyboard shortcut listener for Space, Frame Stepping, Home, End, and Undo/Redo
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       const activeTag = (document.activeElement?.tagName || '').toLowerCase();
       if (activeTag === 'input' || activeTag === 'textarea') return;
+
+      // Undo: Ctrl+Z / Cmd+Z (without Shift)
+      if ((e.ctrlKey || e.metaKey) && (e.key === 'z' || e.key === 'Z') && !e.shiftKey) {
+        e.preventDefault();
+        e.stopPropagation();
+        handleUndo();
+        return;
+      }
+
+      // Redo: Ctrl+Shift+Z / Cmd+Shift+Z OR Ctrl+Y / Cmd+Y
+      if (
+        ((e.ctrlKey || e.metaKey) && (e.key === 'z' || e.key === 'Z') && e.shiftKey) ||
+        ((e.ctrlKey || e.metaKey) && (e.key === 'y' || e.key === 'Y'))
+      ) {
+        e.preventDefault();
+        e.stopPropagation();
+        handleRedo();
+        return;
+      }
 
       if (e.code === 'Space') {
         e.preventDefault();
@@ -313,9 +397,9 @@ export const StudioPage: React.FC<StudioPageProps> = ({ onBackToLibrary }) => {
       }
     };
 
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [fps, duration]);
+    window.addEventListener('keydown', handleKeyDown, { capture: true });
+    return () => window.removeEventListener('keydown', handleKeyDown, { capture: true });
+  }, [fps, duration, handleUndo, handleRedo, togglePlay]);
 
   // Clean up on unmount
   useEffect(() => {
@@ -353,7 +437,7 @@ export const StudioPage: React.FC<StudioPageProps> = ({ onBackToLibrary }) => {
   };
 
   const handleDeleteClip = (clipId: string) => {
-    setClips((prev) => prev.filter((c) => c.id !== clipId));
+    pushClipsWithHistory(clipsRef.current.filter((c) => c.id !== clipId));
   };
 
   // Export 1: Master Audio WAV Mixdown (Client-Side via OfflineAudioContext)
@@ -543,7 +627,7 @@ export const StudioPage: React.FC<StudioPageProps> = ({ onBackToLibrary }) => {
         <div className="flex items-center gap-2">
           {clips.length > 0 && (
             <button
-              onClick={() => setClips([])}
+              onClick={() => pushClipsWithHistory([])}
               className="p-1.5 rounded-lg text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 transition cursor-pointer"
               title="Clear Timeline"
             >
@@ -805,9 +889,14 @@ export const StudioPage: React.FC<StudioPageProps> = ({ onBackToLibrary }) => {
               selectedTrackId={selectedTrackId}
               videoRef={videoRef}
               isPlaying={isPlaying}
+              canUndo={canUndo}
+              canRedo={canRedo}
+              onUndo={handleUndo}
+              onRedo={handleRedo}
               onSelectTrack={setSelectedTrackId}
               onSeek={handleSeek}
               onUpdateClip={handleUpdateClip}
+              onCommitClipMove={handleCommitClipMove}
               onDeleteClip={handleDeleteClip}
               onToggleMute={handleToggleMute}
               onToggleSolo={handleToggleSolo}
