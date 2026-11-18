@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Search, Play, Pause, Zap, Volume2, Sparkles, Filter, Loader2 } from 'lucide-react';
+import { Search, Play, Pause, Zap, Volume2, Sparkles, Filter, Loader2, X } from 'lucide-react';
 
-interface SoundItem {
+export interface SoundItem {
   id: number;
   filename: string;
   display_name: string;
@@ -27,15 +27,17 @@ export const StudioPalette: React.FC<StudioPaletteProps> = ({
   const [selectedSoundId, setSelectedSoundId] = useState<number | null>(null);
   
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const searchInputRef = useRef<HTMLInputElement | null>(null);
 
   const categories = [
     { label: 'All', value: '' },
-    { label: 'Impacts', value: 'impact' },
-    { label: 'Whoosh', value: 'whoosh' },
-    { label: 'Foley', value: 'foley' },
-    { label: 'Ambience', value: 'ambience' },
-    { label: 'Sci-Fi', value: 'sci-fi' },
-    { label: 'Explosion', value: 'explosion' },
+    { label: 'Impacts', value: 'HIT' },
+    { label: 'Whoosh', value: 'WSH' },
+    { label: 'Foley', value: 'FOY' },
+    { label: 'Ambience', value: 'AMB' },
+    { label: 'Sci-Fi', value: 'SCI' },
+    { label: 'Weapons', value: 'WPN' },
+    { label: 'UI', value: 'UI' },
   ];
 
   // Debounced search
@@ -47,17 +49,18 @@ export const StudioPalette: React.FC<StudioPaletteProps> = ({
         const params = new URLSearchParams({
           q: query,
           category: selectedCat,
-          limit: '40',
-          sort_by: 'name',
+          limit: '50',
+          sort_by: query ? 'default' : 'name',
           sort_order: 'asc',
         });
         const res = await fetch(`/api/search?${params.toString()}`);
         if (!res.ok) throw new Error('Failed to search');
         const data = await res.json();
         if (!isCancelled) {
-          setResults(data.items || []);
-          if (data.items?.length > 0 && selectedSoundId === null) {
-            setSelectedSoundId(data.items[0].id);
+          const list: SoundItem[] = data.results || [];
+          setResults(list);
+          if (list.length > 0 && (selectedSoundId === null || !list.some(s => s.id === selectedSoundId))) {
+            setSelectedSoundId(list[0].id);
           }
         }
       } catch (e) {
@@ -67,7 +70,7 @@ export const StudioPalette: React.FC<StudioPaletteProps> = ({
       }
     };
 
-    const timer = setTimeout(fetchSounds, 200);
+    const timer = setTimeout(fetchSounds, 180);
     return () => {
       isCancelled = true;
       clearTimeout(timer);
@@ -83,6 +86,35 @@ export const StudioPalette: React.FC<StudioPaletteProps> = ({
       }
     };
   }, []);
+
+  // Hotkey listener for Spotting [S]
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const activeTag = (document.activeElement?.tagName || '').toLowerCase();
+      if (activeTag === 'input' || activeTag === 'textarea') return;
+
+      if (e.key === 's' || e.key === 'S') {
+        const activeSound = results.find((r) => r.id === selectedSoundId) || results[0];
+        if (activeSound) {
+          e.preventDefault();
+          onSpotSound(activeSound);
+        }
+      } else if (e.key === 'ArrowDown' && results.length > 0) {
+        e.preventDefault();
+        const currIdx = results.findIndex((r) => r.id === selectedSoundId);
+        const nextIdx = Math.min(results.length - 1, currIdx + 1);
+        setSelectedSoundId(results[nextIdx].id);
+      } else if (e.key === 'ArrowUp' && results.length > 0) {
+        e.preventDefault();
+        const currIdx = results.findIndex((r) => r.id === selectedSoundId);
+        const prevIdx = Math.max(0, currIdx - 1);
+        setSelectedSoundId(results[prevIdx].id);
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [results, selectedSoundId, onSpotSound]);
 
   const handlePlayToggle = (sound: SoundItem, e: React.MouseEvent) => {
     e.stopPropagation();
@@ -129,17 +161,29 @@ export const StudioPalette: React.FC<StudioPaletteProps> = ({
 
         {/* Search input */}
         <div className="relative">
-          <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
+          <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
           <input
+            ref={searchInputRef}
             type="text"
             placeholder="Search 32,500+ sound effects..."
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            className="w-full bg-slate-900 border border-slate-700/80 rounded-lg pl-8 pr-3 py-1.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500 transition"
+            onKeyDown={(e) => e.stopPropagation()} // Prevent shortcut collisions while typing
+            className="w-full bg-slate-900 border border-slate-700/80 rounded-lg pl-8 pr-7 py-1.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500 transition"
           />
-          {isLoading && (
+          {query ? (
+            <button
+              onClick={() => {
+                setQuery('');
+                searchInputRef.current?.focus();
+              }}
+              className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white"
+            >
+              <X className="w-3 h-3" />
+            </button>
+          ) : isLoading ? (
             <Loader2 className="w-3.5 h-3.5 text-indigo-400 animate-spin absolute right-2.5 top-1/2 -translate-y-1/2" />
-          )}
+          ) : null}
         </div>
 
         {/* Category Pills */}
@@ -164,7 +208,7 @@ export const StudioPalette: React.FC<StudioPaletteProps> = ({
       <div className="flex-1 overflow-y-auto p-2 flex flex-col gap-1.5">
         {results.length === 0 && !isLoading ? (
           <div className="text-center py-12 text-slate-500 text-xs">
-            No sound effects found. Try another query.
+            No sound effects found. Try another query or category.
           </div>
         ) : (
           results.map((sound) => {
@@ -177,7 +221,7 @@ export const StudioPalette: React.FC<StudioPaletteProps> = ({
                 onClick={() => setSelectedSoundId(sound.id)}
                 className={`flex items-center justify-between p-2 rounded-xl border transition cursor-pointer group ${
                   isSelected
-                    ? 'bg-slate-800/90 border-indigo-500/50 shadow-sm'
+                    ? 'bg-slate-800/90 border-indigo-500/60 shadow-sm ring-1 ring-indigo-500/30'
                     : 'bg-slate-950/40 border-slate-800/60 hover:bg-slate-850 hover:border-slate-700'
                 }`}
               >

@@ -811,13 +811,20 @@ export default function App() {
   // Keyboard navigation & shortcuts
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      // In Studio Lab mode, Studio handles all video & spotting shortcuts exclusively
+      if (currentView === 'studio') return;
+
       if (contextMenu !== null && e.key === 'Escape') {
         e.preventDefault();
         setContextMenu(null);
         return;
       }
 
+      const targetTag = (document.activeElement?.tagName || '').toLowerCase();
       const isInput =
+        targetTag === 'input' ||
+        targetTag === 'textarea' ||
+        targetTag === 'select' ||
         document.activeElement === searchInputRef.current ||
         editingId !== null ||
         editingProjectId !== null ||
@@ -957,7 +964,7 @@ export default function App() {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [results, selectedId, editingId, editingProjectId, assignModalSound, confirmDialog, contextMenu, settingsOpen, newProjectInline]);
+  }, [results, selectedId, editingId, editingProjectId, assignModalSound, confirmDialog, contextMenu, settingsOpen, newProjectInline, currentView]);
 
   const copyToClipboard = async (text: string): Promise<boolean> => {
     // 1. Try modern navigator.clipboard if in a secure context

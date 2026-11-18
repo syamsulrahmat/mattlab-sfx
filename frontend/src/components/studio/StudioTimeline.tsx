@@ -33,7 +33,6 @@ export const StudioTimeline: React.FC<StudioTimelineProps> = ({
 }) => {
   const [pps, setPps] = useState(60); // pixels per second
   const [draggingClipId, setDraggingClipId] = useState<string | null>(null);
-  const [editingClipId, setEditingClipId] = useState<string | null>(null);
   
   const timelineRef = useRef<HTMLDivElement | null>(null);
   const dragStartRef = useRef<{ startX: number; initialTime: number }>({ startX: 0, initialTime: 0 });
@@ -46,14 +45,34 @@ export const StudioTimeline: React.FC<StudioTimelineProps> = ({
   const numTicks = Math.ceil(timelineDuration / tickInterval);
   const ticks = Array.from({ length: numTicks + 1 }, (_, i) => i * tickInterval);
 
-  // Ruler click to seek
-  const handleRulerClick = (e: React.MouseEvent<HTMLDivElement>) => {
+  // Real-time Scrubbing Drag (both clicking & dragging across ruler or playhead)
+  const handleScrubStart = (e: React.MouseEvent) => {
+    e.preventDefault();
     if (!timelineRef.current) return;
-    const rect = timelineRef.current.getBoundingClientRect();
-    const scrollLeft = timelineRef.current.scrollLeft;
-    const clickX = e.clientX - rect.left + scrollLeft;
-    const newTime = Math.max(0, Math.min(timelineDuration, clickX / pps));
-    onSeek(newTime);
+
+    const calcTime = (clientX: number) => {
+      const rect = timelineRef.current!.getBoundingClientRect();
+      const scrollLeft = timelineRef.current!.scrollLeft;
+      const clickX = clientX - rect.left + scrollLeft;
+      return Math.max(0, Math.min(timelineDuration, clickX / pps));
+    };
+
+    const initialTime = calcTime(e.clientX);
+    onSeek(initialTime);
+
+    const handleMouseMove = (moveEvent: MouseEvent) => {
+      moveEvent.preventDefault();
+      const newTime = calcTime(moveEvent.clientX);
+      onSeek(newTime);
+    };
+
+    const handleMouseUp = () => {
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseup', handleMouseUp);
+    };
+
+    window.addEventListener('mousemove', handleMouseMove);
+    window.addEventListener('mouseup', handleMouseUp);
   };
 
   // Dragging clip along time axis
@@ -218,10 +237,11 @@ export const StudioTimeline: React.FC<StudioTimelineProps> = ({
           className="flex-1 overflow-x-auto overflow-y-hidden relative bg-slate-950/90"
         >
           <div style={{ width: `${totalWidth}px` }} className="relative h-full flex flex-col">
-            {/* Time Ruler */}
+            {/* Time Ruler (Draggable Scrubber) */}
             <div
-              onClick={handleRulerClick}
-              className="h-7 border-b border-slate-800 bg-slate-900/60 relative cursor-pointer select-none"
+              onMouseDown={handleScrubStart}
+              className="h-7 border-b border-slate-800 bg-slate-900/60 relative cursor-ew-resize select-none"
+              title="Click & Drag to Scrub Playhead"
             >
               {ticks.map((sec) => {
                 const x = sec * pps;
@@ -233,7 +253,7 @@ export const StudioTimeline: React.FC<StudioTimelineProps> = ({
                   <div
                     key={sec}
                     style={{ left: `${x}px` }}
-                    className="absolute top-0 bottom-0 border-l border-slate-700/60 pl-1 flex items-center"
+                    className="absolute top-0 bottom-0 border-l border-slate-700/60 pl-1 flex items-center pointer-events-none"
                   >
                     <span className="text-[9px] font-mono text-slate-400 select-none">
                       {timeStr}
@@ -243,12 +263,19 @@ export const StudioTimeline: React.FC<StudioTimelineProps> = ({
               })}
             </div>
 
-            {/* Red Playhead Line */}
+            {/* Red Playhead Line & Draggable Diamond Scrubber */}
             <div
               style={{ left: `${currentTime * pps}px` }}
-              className="absolute top-0 bottom-0 w-0.5 bg-rose-500 z-30 pointer-events-none shadow-lg shadow-rose-500/50"
+              className="absolute top-0 bottom-0 w-0.5 bg-rose-500 z-30 shadow-lg shadow-rose-500/50 pointer-events-none"
             >
-              <div className="w-3 h-3 bg-rose-500 rotate-45 -ml-[5px] -mt-1 shadow-md shadow-rose-500/80" />
+              {/* Grab Handle directly on ruler */}
+              <div
+                onMouseDown={handleScrubStart}
+                className="w-6 h-7 -ml-[12px] top-0 absolute flex items-center justify-center cursor-ew-resize pointer-events-auto group"
+                title="Drag to Scrub Playhead"
+              >
+                <div className="w-3.5 h-3.5 bg-rose-500 rotate-45 shadow-md shadow-rose-500/90 group-hover:scale-125 transition-transform" />
+              </div>
             </div>
 
             {/* 4 Track Lanes */}
@@ -260,11 +287,11 @@ export const StudioTimeline: React.FC<StudioTimelineProps> = ({
                 return (
                   <div
                     key={track.id}
-                    onClick={(e) => {
+                    onMouseDown={(e) => {
                       onSelectTrack(track.id);
-                      handleRulerClick(e);
+                      handleScrubStart(e);
                     }}
-                    className={`h-16 border-b border-slate-800/60 relative transition ${
+                    className={`h-16 border-b border-slate-800/60 relative transition cursor-crosshair ${
                       isSelected ? 'bg-slate-900/40' : 'bg-transparent'
                     }`}
                   >
@@ -273,7 +300,6 @@ export const StudioTimeline: React.FC<StudioTimelineProps> = ({
                       const clipLeft = clip.startTime * pps;
                       const clipWidth = Math.max(28, clip.duration * pps);
                       const isDragging = draggingClipId === clip.id;
-                      const isEditing = editingClipId === clip.id;
 
                       return (
                         <div
