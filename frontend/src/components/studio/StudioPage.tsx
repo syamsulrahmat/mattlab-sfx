@@ -41,7 +41,23 @@ export const StudioPage: React.FC<StudioPageProps> = ({ onBackToLibrary }) => {
   const [isLooping, setIsLooping] = useState(false);
 
   // Studio Tracks & Clips State
-  const [tracks, setTracks] = useState<StudioTrack[]>(DEFAULT_TRACKS);
+  const [tracks, setTracks] = useState<StudioTrack[]>(() => {
+    try {
+      const saved = localStorage.getItem('mattlab_sfx_studio_tracks');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length === DEFAULT_TRACKS.length) {
+          return DEFAULT_TRACKS.map((def, idx) => ({
+            ...def,
+            name: parsed[idx]?.name || def.name,
+          }));
+        }
+      }
+    } catch (e) {
+      // ignore
+    }
+    return DEFAULT_TRACKS;
+  });
   const [clips, setClips] = useState<StudioClip[]>([]);
   const [selectedTrackId, setSelectedTrackId] = useState<number>(0);
   const [paletteOpen, setPaletteOpen] = useState(true);
@@ -167,6 +183,28 @@ export const StudioPage: React.FC<StudioPageProps> = ({ onBackToLibrary }) => {
     });
     setTimeout(() => setStatusMessage(null), 2000);
   }, [tracks, pushClipsWithHistory]);
+
+  const handleRenameTrack = useCallback((trackId: number, newName: string) => {
+    const trimmed = newName.trim();
+    if (!trimmed) return;
+    setTracks((prev) => {
+      const next = prev.map((t) => (t.id === trackId ? { ...t, name: trimmed } : t));
+      try {
+        localStorage.setItem(
+          'mattlab_sfx_studio_tracks',
+          JSON.stringify(next.map((t) => ({ id: t.id, name: t.name })))
+        );
+      } catch (e) {
+        // ignore
+      }
+      return next;
+    });
+    setStatusMessage({
+      text: `Renamed layer [${tracks[trackId]?.tag || `T${trackId + 1}`}] to "${trimmed}"`,
+      type: 'info',
+    });
+    setTimeout(() => setStatusMessage(null), 2000);
+  }, [tracks]);
 
   const handleUndo = useCallback(() => {
     if (pastRef.current.length === 0) return;
@@ -951,6 +989,7 @@ export const StudioPage: React.FC<StudioPageProps> = ({ onBackToLibrary }) => {
               onUpdateClip={handleUpdateClip}
               onCommitClipMove={handleCommitClipMove}
               onMoveClipToTrack={handleMoveClipToTrack}
+              onRenameTrack={handleRenameTrack}
               onDeleteClip={handleDeleteClip}
               onToggleMute={handleToggleMute}
               onToggleSolo={handleToggleSolo}

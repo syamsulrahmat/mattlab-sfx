@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
-import { Volume2, VolumeX, Trash2, ZoomIn, ZoomOut, Move, Sliders, Undo2, Redo2, Layers, AlertTriangle, Maximize2 } from 'lucide-react';
+import { Volume2, VolumeX, Trash2, ZoomIn, ZoomOut, Move, Sliders, Undo2, Redo2, Layers, AlertTriangle, Maximize2, Edit2 } from 'lucide-react';
 import { StudioTrack, StudioClip } from './types';
 import { ClipWaveform } from './ClipWaveform';
 
@@ -26,6 +26,7 @@ interface StudioTimelineProps {
     finalTrackId?: number
   ) => void;
   onMoveClipToTrack?: (clipId: string, targetTrackId: number) => void;
+  onRenameTrack?: (trackId: number, newName: string) => void;
   onDeleteClip: (clipId: string) => void;
   onToggleMute: (trackId: number) => void;
   onToggleSolo: (trackId: number) => void;
@@ -49,6 +50,7 @@ export const StudioTimeline: React.FC<StudioTimelineProps> = React.memo(({
   onUpdateClip,
   onCommitClipMove,
   onMoveClipToTrack,
+  onRenameTrack,
   onDeleteClip,
   onToggleMute,
   onToggleSolo,
@@ -57,6 +59,23 @@ export const StudioTimeline: React.FC<StudioTimelineProps> = React.memo(({
   const [pps, setPps] = useState(60); // pixels per second
   const [draggingClipId, setDraggingClipId] = useState<string | null>(null);
   const [layerMenuClipId, setLayerMenuClipId] = useState<string | null>(null);
+  const [editingTrackId, setEditingTrackId] = useState<number | null>(null);
+  const [editTrackName, setEditTrackName] = useState<string>('');
+
+  const handleStartRename = (track: StudioTrack, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setEditingTrackId(track.id);
+    setEditTrackName(track.name);
+  };
+
+  const handleCommitRename = (trackId: number) => {
+    if (editingTrackId === trackId) {
+      if (editTrackName.trim() && onRenameTrack) {
+        onRenameTrack(trackId, editTrackName.trim());
+      }
+      setEditingTrackId(null);
+    }
+  };
   
   const timelineContainerRef = useRef<HTMLDivElement | null>(null);
   const timelineRef = useRef<HTMLDivElement | null>(null);
@@ -537,21 +556,55 @@ export const StudioTimeline: React.FC<StudioTimelineProps> = React.memo(({
                       : 'bg-slate-900/50 hover:bg-slate-850'
                   }`}
                 >
-                  {/* Track Title & Tag */}
+                  {/* Track Title & Tag with Inline Renaming */}
                   <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-1.5 min-w-0">
+                    <div className="flex items-center gap-1.5 min-w-0 flex-1 mr-1">
                       <span
-                        className={`text-[9px] font-bold font-mono px-1.5 py-0.5 rounded ${track.colorBg} ${track.colorText} border ${track.colorBorder}`}
+                        className={`text-[9px] font-bold font-mono px-1.5 py-0.5 rounded shrink-0 ${track.colorBg} ${track.colorText} border ${track.colorBorder}`}
                       >
                         {track.tag}
                       </span>
-                      <span className="text-xs font-semibold text-slate-200 truncate">
-                        {track.name}
-                      </span>
+
+                      {editingTrackId === track.id ? (
+                        <input
+                          type="text"
+                          value={editTrackName}
+                          autoFocus
+                          onClick={(e) => e.stopPropagation()}
+                          onChange={(e) => setEditTrackName(e.target.value)}
+                          onKeyDown={(e) => {
+                            e.stopPropagation();
+                            if (e.key === 'Enter') {
+                              handleCommitRename(track.id);
+                            } else if (e.key === 'Escape') {
+                              setEditingTrackId(null);
+                            }
+                          }}
+                          onBlur={() => handleCommitRename(track.id)}
+                          className="bg-slate-950 border border-indigo-500 rounded px-1.5 py-0.5 text-xs text-white font-medium w-full focus:outline-none focus:ring-1 focus:ring-indigo-400"
+                        />
+                      ) : (
+                        <div
+                          onDoubleClick={(e) => handleStartRename(track, e)}
+                          className="flex items-center gap-1 min-w-0 group/rename cursor-text flex-1"
+                          title="Double-click or click pencil icon to rename track"
+                        >
+                          <span className="text-xs font-semibold text-slate-200 truncate">
+                            {track.name}
+                          </span>
+                          <button
+                            onClick={(e) => handleStartRename(track, e)}
+                            className="opacity-0 group-hover/rename:opacity-100 p-0.5 rounded hover:bg-slate-800 text-slate-400 hover:text-white transition shrink-0 cursor-pointer"
+                            title="Rename Track"
+                          >
+                            <Edit2 className="w-2.5 h-2.5" />
+                          </button>
+                        </div>
+                      )}
                     </div>
 
-                    {isSelected && (
-                      <span className="w-2 h-2 rounded-full bg-indigo-400 shadow-sm animate-pulse" title="Active Spotting Track" />
+                    {isSelected && editingTrackId !== track.id && (
+                      <span className="w-2 h-2 rounded-full bg-indigo-400 shadow-sm animate-pulse shrink-0" title="Active Spotting Track" />
                     )}
                   </div>
 
