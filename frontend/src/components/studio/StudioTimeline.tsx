@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
-import { Volume2, VolumeX, Trash2, ZoomIn, ZoomOut, Move, Sliders, Undo2, Redo2, Layers, AlertTriangle } from 'lucide-react';
+import { Volume2, VolumeX, Trash2, ZoomIn, ZoomOut, Move, Sliders, Undo2, Redo2, Layers, AlertTriangle, Maximize2 } from 'lucide-react';
 import { StudioTrack, StudioClip } from './types';
 import { ClipWaveform } from './ClipWaveform';
 
@@ -64,9 +64,9 @@ export const StudioTimeline: React.FC<StudioTimelineProps> = React.memo(({
   const dragStartRef = useRef<{ startX: number; initialTime: number }>({ startX: 0, initialTime: 0 });
   const isDraggingScrubberRef = useRef(false);
 
-  const timelineDuration = Math.max(duration || 10, 15);
-  // Add 260px right margin so the rightmost timecode and clips have ample room and are never cut off
-  const totalWidth = Math.max(800, timelineDuration * pps + 260);
+  // Premiere-style Sequence Width: tightly bounded to sequence duration without wasted buffer
+  const sequenceWidth = Math.ceil((duration > 0 ? duration : 10) * pps);
+  const totalWidth = Math.max(timelineRef.current?.clientWidth || 800, sequenceWidth + 20);
 
   const formatTimeCode = (secs: number) => {
     const m = Math.floor(secs / 60);
@@ -77,29 +77,48 @@ export const StudioTimeline: React.FC<StudioTimelineProps> = React.memo(({
 
   const isAtEnd = duration > 0 && Math.abs(currentTime - duration) < 0.08;
 
-  // Time ruler ticks (only draw up to duration, omitting phantom ticks past video end)
+  // Premiere-style "Zoom to Fit" ( \ shortcut ): scale sequence so 0:00 to end fills timeline window exactly
+  const zoomToFit = useCallback(() => {
+    if (!timelineRef.current || !duration || duration <= 0) return;
+    const clientWidth = timelineRef.current.clientWidth;
+    const calculatedPps = Math.max(4, Math.min(240, (clientWidth - 28) / duration));
+    setPps(parseFloat(calculatedPps.toFixed(2)));
+    if (timelineRef.current) {
+      timelineRef.current.scrollLeft = 0;
+    }
+  }, [duration]);
+
+  // Auto-fit to sequence on initial load
+  const hasAutoFittedRef = useRef(false);
+  useEffect(() => {
+    if (duration > 0 && !hasAutoFittedRef.current) {
+      hasAutoFittedRef.current = true;
+      zoomToFit();
+    }
+  }, [duration, zoomToFit]);
+
+  // Time ruler ticks (cleanly capped at duration)
   const ticks = useMemo(() => {
-    const tickInterval = pps < 50 ? 5 : pps < 100 ? 2 : 1;
-    const maxSec = duration > 0 ? duration : timelineDuration;
+    const tickInterval = pps < 30 ? 10 : pps < 60 ? 5 : pps < 120 ? 2 : 1;
+    const maxSec = duration > 0 ? duration : 10;
     const numTicks = Math.floor(maxSec / tickInterval);
     const list: number[] = [];
     for (let i = 0; i <= numTicks; i++) {
       const sec = i * tickInterval;
-      // Don't draw a regular tick if it collides with final duration marker
-      if (duration > 0 && Math.abs(sec - duration) < (tickInterval * 0.4)) {
+      if (duration > 0 && Math.abs(sec - duration) < (tickInterval * 0.45)) {
         continue;
       }
       list.push(sec);
     }
     return list;
-  }, [duration, timelineDuration, pps]);
+  }, [duration, pps]);
 
   // Zoom helpers
   const zoomIn = useCallback(() => setPps((prev) => Math.min(240, prev + 15)), []);
-  const zoomOut = useCallback(() => setPps((prev) => Math.max(20, prev - 15)), []);
+  const zoomOut = useCallback(() => setPps((prev) => Math.max(10, prev - 15)), []);
   const zoomReset = useCallback(() => setPps(60), []);
 
-  // Zoom keyboard shortcuts (+ / - / 0) with capture: true to prevent browser native zoom
+  // Zoom keyboard shortcuts (+ / - / 0 / \) with capture: true
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       const activeTag = (document.activeElement?.tagName || '').toLowerCase();
@@ -108,6 +127,7 @@ export const StudioTimeline: React.FC<StudioTimelineProps> = React.memo(({
       const isZoomIn = e.key === '=' || e.key === '+' || e.code === 'Equal' || e.code === 'NumpadAdd';
       const isZoomOut = e.key === '-' || e.key === '_' || e.code === 'Minus' || e.code === 'NumpadSubtract';
       const isZoomReset = (e.key === '0' || e.code === 'Digit0' || e.code === 'Numpad0') && (e.ctrlKey || e.metaKey);
+      const isZoomFit = e.key === '\\' || e.code === 'Backslash';
 
       if (isZoomIn) {
         e.preventDefault();
@@ -121,12 +141,16 @@ export const StudioTimeline: React.FC<StudioTimelineProps> = React.memo(({
         e.preventDefault();
         e.stopPropagation();
         zoomReset();
+      } else if (isZoomFit) {
+        e.preventDefault();
+        e.stopPropagation();
+        zoomToFit();
       }
     };
 
     window.addEventListener('keydown', handleKeyDown, { capture: true });
     return () => window.removeEventListener('keydown', handleKeyDown, { capture: true });
-  }, [zoomIn, zoomOut, zoomReset]);
+  }, [zoomIn, zoomOut, zoomReset, zoomToFit]);
 
   // 60fps / 120fps GPU-accelerated playhead movement via requestAnimationFrame
   useEffect(() => {
@@ -348,7 +372,7 @@ export const StudioTimeline: React.FC<StudioTimelineProps> = React.memo(({
             </button>
           </div>
 
-          {/* Zoom Controls with Shortcut Badges */}
+          {/* Zoom Controls with Premiere Fit (\) */}
           <div className="flex items-center gap-1">
             <button
               onClick={zoomOut}
@@ -359,11 +383,20 @@ export const StudioTimeline: React.FC<StudioTimelineProps> = React.memo(({
               <kbd className="text-[9px] font-mono px-1 rounded bg-slate-800 text-slate-400 border border-slate-700">-</kbd>
             </button>
             <button
+              onClick={zoomToFit}
+              className="flex items-center gap-1 px-2 py-1 rounded text-slate-300 hover:text-white bg-slate-800/80 hover:bg-slate-800 border border-slate-700 transition cursor-pointer text-[10px] font-mono"
+              title="Fit Sequence to Window [\]"
+            >
+              <Maximize2 className="w-3 h-3 text-indigo-400" />
+              <span>Fit</span>
+              <kbd className="text-[8px] font-mono px-1 rounded bg-slate-900 text-slate-400 border border-slate-700">\</kbd>
+            </button>
+            <button
               onClick={zoomReset}
               className="text-[10px] text-slate-400 hover:text-white font-mono px-1.5 py-0.5 rounded hover:bg-slate-800 transition cursor-pointer"
               title="Reset Zoom to 60px/s [Ctrl+0]"
             >
-              {pps}px/s
+              {Math.round(pps)}px/s
             </button>
             <button
               onClick={zoomIn}
@@ -517,35 +550,12 @@ export const StudioTimeline: React.FC<StudioTimelineProps> = React.memo(({
               )}
             </div>
 
-            {/* Out-of-Bounds Shaded Zone & End Boundary Line across canvas */}
+            {/* Premiere-style Sequence End Boundary Line across canvas */}
             {duration > 0 && (
-              <>
-                {/* Vertical End Boundary Line */}
-                <div
-                  style={{ left: `${duration * pps}px` }}
-                  className="absolute top-0 bottom-0 w-0.5 bg-indigo-500 z-20 pointer-events-none shadow-md shadow-indigo-500/50"
-                />
-
-                {/* Shaded Out-of-Bounds Zone */}
-                <div
-                  style={{
-                    left: `${duration * pps}px`,
-                    width: `${Math.max(260, totalWidth - duration * pps)}px`,
-                  }}
-                  className="absolute top-0 bottom-0 pointer-events-none select-none z-10 flex items-center justify-center opacity-70"
-                >
-                  <div
-                    className="w-full h-full border-l border-indigo-500/80"
-                    style={{
-                      background: 'repeating-linear-gradient(45deg, rgba(2, 6, 23, 0.75), rgba(2, 6, 23, 0.75) 12px, rgba(15, 23, 42, 0.85) 12px, rgba(15, 23, 42, 0.85) 24px)',
-                    }}
-                  >
-                    <div className="pt-8 pl-4 text-[10px] font-mono font-bold tracking-widest text-slate-500/80 uppercase">
-                      // Past Video Duration
-                    </div>
-                  </div>
-                </div>
-              </>
+              <div
+                style={{ left: `${duration * pps}px` }}
+                className="absolute top-0 bottom-0 w-0.5 bg-indigo-500/80 z-20 pointer-events-none shadow-md shadow-indigo-500/50"
+              />
             )}
 
             {/* Red Playhead Line & Draggable Scrubber with GPU transform */}
