@@ -68,12 +68,31 @@ export const StudioTimeline: React.FC<StudioTimelineProps> = React.memo(({
   // Add 260px right margin so the rightmost timecode and clips have ample room and are never cut off
   const totalWidth = Math.max(800, timelineDuration * pps + 260);
 
-  // Time ruler ticks (memoized to eliminate frame garbage collection churn)
+  const formatTimeCode = (secs: number) => {
+    const m = Math.floor(secs / 60);
+    const s = Math.floor(secs % 60);
+    const ms = Math.floor((secs % 1) * 100);
+    return `${m < 10 ? '0' : ''}${m}:${s < 10 ? '0' : ''}${s}.${ms < 10 ? '0' : ''}${ms}`;
+  };
+
+  const isAtEnd = duration > 0 && Math.abs(currentTime - duration) < 0.08;
+
+  // Time ruler ticks (only draw up to duration, omitting phantom ticks past video end)
   const ticks = useMemo(() => {
     const tickInterval = pps < 50 ? 5 : pps < 100 ? 2 : 1;
-    const numTicks = Math.ceil(timelineDuration / tickInterval);
-    return Array.from({ length: numTicks + 1 }, (_, i) => i * tickInterval);
-  }, [timelineDuration, pps]);
+    const maxSec = duration > 0 ? duration : timelineDuration;
+    const numTicks = Math.floor(maxSec / tickInterval);
+    const list: number[] = [];
+    for (let i = 0; i <= numTicks; i++) {
+      const sec = i * tickInterval;
+      // Don't draw a regular tick if it collides with final duration marker
+      if (duration > 0 && Math.abs(sec - duration) < (tickInterval * 0.4)) {
+        continue;
+      }
+      list.push(sec);
+    }
+    return list;
+  }, [duration, timelineDuration, pps]);
 
   // Zoom helpers
   const zoomIn = useCallback(() => setPps((prev) => Math.min(240, prev + 15)), []);
@@ -152,7 +171,8 @@ export const StudioTimeline: React.FC<StudioTimelineProps> = React.memo(({
       const rect = timelineRef.current!.getBoundingClientRect();
       const scrollLeft = timelineRef.current!.scrollLeft;
       const clickX = clientX - rect.left + scrollLeft;
-      return Math.max(0, Math.min(timelineDuration, clickX / pps));
+      const maxTime = duration > 0 ? duration : timelineDuration;
+      return Math.max(0, Math.min(maxTime, clickX / pps));
     };
 
     const initialTime = calcTime(e.clientX);
@@ -482,21 +502,81 @@ export const StudioTimeline: React.FC<StudioTimelineProps> = React.memo(({
                   </div>
                 );
               })}
+
+              {/* Dedicated Final Video Duration Marker on Ruler */}
+              {duration > 0 && (
+                <div
+                  style={{ left: `${duration * pps}px` }}
+                  className="absolute top-0 bottom-0 flex items-center z-10 pointer-events-none"
+                >
+                  <div className="absolute top-0.5 -translate-x-1/2 px-1.5 py-0.5 rounded bg-indigo-600 text-[8.5px] font-mono font-bold text-white shadow-md flex items-center gap-1 border border-indigo-400/50 select-none">
+                    <span>END</span>
+                    <span className="text-indigo-200">{formatTimeCode(duration)}</span>
+                  </div>
+                </div>
+              )}
             </div>
+
+            {/* Out-of-Bounds Shaded Zone & End Boundary Line across canvas */}
+            {duration > 0 && (
+              <>
+                {/* Vertical End Boundary Line */}
+                <div
+                  style={{ left: `${duration * pps}px` }}
+                  className="absolute top-0 bottom-0 w-0.5 bg-indigo-500 z-20 pointer-events-none shadow-md shadow-indigo-500/50"
+                />
+
+                {/* Shaded Out-of-Bounds Zone */}
+                <div
+                  style={{
+                    left: `${duration * pps}px`,
+                    width: `${Math.max(260, totalWidth - duration * pps)}px`,
+                  }}
+                  className="absolute top-0 bottom-0 pointer-events-none select-none z-10 flex items-center justify-center opacity-70"
+                >
+                  <div
+                    className="w-full h-full border-l border-indigo-500/80"
+                    style={{
+                      background: 'repeating-linear-gradient(45deg, rgba(2, 6, 23, 0.75), rgba(2, 6, 23, 0.75) 12px, rgba(15, 23, 42, 0.85) 12px, rgba(15, 23, 42, 0.85) 24px)',
+                    }}
+                  >
+                    <div className="pt-8 pl-4 text-[10px] font-mono font-bold tracking-widest text-slate-500/80 uppercase">
+                      // Past Video Duration
+                    </div>
+                  </div>
+                </div>
+              </>
+            )}
 
             {/* Red Playhead Line & Draggable Scrubber with GPU transform */}
             <div
               ref={playheadRef}
               style={{ transform: `translateX(${currentTime * pps}px)` }}
-              className="absolute top-0 bottom-0 left-0 w-0.5 bg-rose-500 z-30 shadow-lg shadow-rose-500/50 pointer-events-none will-change-transform"
+              className={`absolute top-0 bottom-0 left-0 w-0.5 z-30 shadow-lg pointer-events-none will-change-transform ${
+                isAtEnd ? 'bg-amber-400 shadow-amber-400/70' : 'bg-rose-500 shadow-rose-500/50'
+              }`}
             >
               {/* Grab Handle directly on ruler */}
               <div
                 onMouseDown={handleScrubStart}
                 className="w-6 h-7 -ml-[12px] top-0 absolute flex items-center justify-center cursor-ew-resize pointer-events-auto group"
-                title="Drag to Scrub Playhead"
+                title={isAtEnd ? `Playhead at End (${formatTimeCode(duration)})` : 'Drag to Scrub Playhead'}
               >
-                <div className="w-3.5 h-3.5 bg-rose-500 rotate-45 shadow-md shadow-rose-500/90 group-hover:scale-125 transition-transform" />
+                {/* Scrubber Diamond */}
+                <div
+                  className={`w-3.5 h-3.5 rotate-45 shadow-md group-hover:scale-125 transition-all ${
+                    isAtEnd
+                      ? 'bg-amber-400 shadow-amber-400/90 ring-2 ring-amber-300'
+                      : 'bg-rose-500 shadow-rose-500/90'
+                  }`}
+                />
+
+                {/* Floating "END" Tag when parked at video duration */}
+                {isAtEnd && (
+                  <span className="absolute -top-3.5 px-1 py-0.2 rounded bg-amber-500 text-slate-950 font-mono font-black text-[7.5px] uppercase tracking-wider shadow-md pointer-events-none animate-pulse">
+                    END
+                  </span>
+                )}
               </div>
             </div>
 
