@@ -5,3 +5,7 @@ __pycache__/
 .env
 data/
 peaks/
+*.png
+*.jpg
+*.jpeg
+.screenshots/
