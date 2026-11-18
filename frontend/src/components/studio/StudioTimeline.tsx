@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useRef, useEffect, useLayoutEffect, useMemo, useCallback } from 'react';
 import {
   Volume2,
   VolumeX,
@@ -137,6 +137,21 @@ export const StudioTimeline: React.FC<StudioTimelineProps> = React.memo(({
 
   // Track previous zoom level and fit state
   const prevZoomLevelRef = useRef<number>(60);
+  const ppsRef = useRef<number>(pps);
+  ppsRef.current = pps;
+  const zoomAccumulatorRef = useRef<number>(0);
+  const zoomRafRef = useRef<number | null>(null);
+  const cursorPositionRef = useRef<{ clientX: number; clientY: number }>({ clientX: 0, clientY: 0 });
+  const pendingScrollAnchorRef = useRef<{ timeAtCursor: number; cursorX: number } | null>(null);
+
+  // Synchronously adjust scrollLeft before browser paints to prevent clamping or jitter
+  useLayoutEffect(() => {
+    if (pendingScrollAnchorRef.current && timelineRef.current) {
+      const { timeAtCursor, cursorX } = pendingScrollAnchorRef.current;
+      timelineRef.current.scrollLeft = Math.max(0, timeAtCursor * pps - cursorX);
+      pendingScrollAnchorRef.current = null;
+    }
+  }, [pps]);
 
   // Calculate current fit PPS based on viewport so sequence always fills 100% of window
   const getFitPps = useCallback(() => {
@@ -400,9 +415,10 @@ export const StudioTimeline: React.FC<StudioTimelineProps> = React.memo(({
     return () => cancelAnimationFrame(animId);
   }, [pps, isPlaying, videoRef, currentTime]);
 
-  // Auto-scroll timeline to keep playhead in view during playback or scrubbing
+  // Auto-scroll timeline to keep playhead in view strictly during active playback or scrubbing
   useEffect(() => {
     if (!timelineRef.current) return;
+    if (!isPlaying && !isDraggingScrubberRef.current) return;
     const playheadX = currentTime * pps;
     const scrollLeft = timelineRef.current.scrollLeft;
     const clientWidth = timelineRef.current.clientWidth;
@@ -412,7 +428,7 @@ export const StudioTimeline: React.FC<StudioTimelineProps> = React.memo(({
     } else if (playheadX < scrollLeft) {
       timelineRef.current.scrollLeft = Math.max(0, playheadX - 40);
     }
-  }, [currentTime, pps]);
+  }, [currentTime, pps, isPlaying]);
 
   // Real-time Scrubbing Drag (both clicking & dragging across ruler or playhead)
   const handleScrubStart = (e: React.MouseEvent) => {
@@ -707,30 +723,38 @@ export const StudioTimeline: React.FC<StudioTimelineProps> = React.memo(({
         e.preventDefault();
         e.stopPropagation();
 
-        const timelineEl = timelineRef.current;
-        if (!timelineEl) return;
+        cursorPositionRef.current = { clientX: e.clientX, clientY: e.clientY };
+        zoomAccumulatorRef.current += -e.deltaY;
 
-        const rect = timelineEl.getBoundingClientRect();
-        const cursorX = e.clientX - rect.left;
-        const currentScrollLeft = timelineEl.scrollLeft;
+        if (zoomRafRef.current === null) {
+          zoomRafRef.current = requestAnimationFrame(() => {
+            zoomRafRef.current = null;
+            const delta = zoomAccumulatorRef.current;
+            zoomAccumulatorRef.current = 0;
 
-        // The exact timecode under the user's cursor
-        const timeAtCursor = (cursorX + currentScrollLeft) / pps;
+            const timelineEl = timelineRef.current;
+            if (!timelineEl) return;
 
-        // Smooth continuous exponential scale
-        const zoomDelta = -e.deltaY * 0.002;
-        const zoomFactor = Math.exp(Math.max(-0.25, Math.min(0.25, zoomDelta)));
-        const fitPps = getFitPps();
-        // Clamped between fitPps (so timeline NEVER shrinks smaller than window) and 240px/s
-        const targetPps = Math.max(fitPps, Math.min(240, parseFloat((pps * zoomFactor).toFixed(2))));
+            const currentPps = ppsRef.current;
+            const rect = timelineEl.getBoundingClientRect();
+            const cursorX = cursorPositionRef.current.clientX - rect.left;
+            const currentScrollLeft = timelineEl.scrollLeft;
 
-        if (targetPps !== pps) {
-          prevZoomLevelRef.current = targetPps;
-          setPps(targetPps);
+            // The exact timecode under the user's cursor
+            const timeAtCursor = (cursorX + currentScrollLeft) / currentPps;
 
-          // Anchor the timecode directly under the cursor so it doesn't drift!
-          const newScrollLeft = Math.max(0, timeAtCursor * targetPps - cursorX);
-          timelineEl.scrollLeft = newScrollLeft;
+            // Smooth continuous exponential scale
+            const zoomDelta = delta * 0.0016;
+            const zoomFactor = Math.exp(Math.max(-0.35, Math.min(0.35, zoomDelta)));
+            const fitPps = getFitPps();
+            const targetPps = Math.max(fitPps, Math.min(240, parseFloat((currentPps * zoomFactor).toFixed(2))));
+
+            if (Math.abs(targetPps - currentPps) > 0.01) {
+              pendingScrollAnchorRef.current = { timeAtCursor, cursorX };
+              prevZoomLevelRef.current = targetPps;
+              setPps(targetPps);
+            }
+          });
         }
       }
     };
@@ -739,8 +763,12 @@ export const StudioTimeline: React.FC<StudioTimelineProps> = React.memo(({
     el.addEventListener('wheel', handleNativeWheel, { passive: false });
     return () => {
       el.removeEventListener('wheel', handleNativeWheel);
+      if (zoomRafRef.current !== null) {
+        cancelAnimationFrame(zoomRafRef.current);
+        zoomRafRef.current = null;
+      }
     };
-  }, [pps, getFitPps]);
+  }, [getFitPps]);
 
   return (
     <div
@@ -1117,7 +1145,7 @@ export const StudioTimeline: React.FC<StudioTimelineProps> = React.memo(({
                       onSelectTrack(track.id);
                       handleScrubStart(e);
                     }}
-                    className={`h-16 border-b border-slate-800/60 relative transition cursor-crosshair ${
+                    className={`h-16 border-b border-slate-800/60 relative transition-colors duration-150 cursor-crosshair ${
                       isSelected ? 'bg-slate-900/40' : 'bg-transparent'
                     }`}
                   >
@@ -1155,7 +1183,7 @@ export const StudioTimeline: React.FC<StudioTimelineProps> = React.memo(({
                               setHoverSplitInfo(null);
                             }
                           }}
-                          className={`absolute ${verticalClass} rounded-lg border shadow-md flex flex-col justify-between p-1 transition-all overflow-hidden group select-none ${
+                          className={`absolute ${verticalClass} rounded-lg border shadow-md flex flex-col justify-between p-1 transition-[box-shadow,opacity] duration-150 overflow-hidden group select-none ${
                             track.colorClip
                           } ${isDragging ? 'opacity-80 scale-[0.99] ring-2 ring-white z-40' : 'z-10'} ${
                             isClipSelected ? 'ring-2 ring-white shadow-xl brightness-110' : ''
@@ -1176,23 +1204,23 @@ export const StudioTimeline: React.FC<StudioTimelineProps> = React.memo(({
                           {/* Left Trim Handle (In-Point) */}
                           <div
                             onMouseDown={(e) => handleTrimStart(clip, 'in', e)}
-                            className={`absolute left-0 top-0 bottom-0 w-2.5 hover:w-3.5 z-30 transition-all cursor-col-resize flex items-center justify-start pl-0.5 group/trimIn ${
+                            className={`absolute left-0 top-0 bottom-0 w-2.5 hover:w-3.5 z-30 transition-[width,background-color] duration-150 cursor-col-resize flex items-center justify-start pl-0.5 group/trimIn ${
                               activeTool === 'razor' ? 'pointer-events-none' : ''
                             }`}
                             title={`Trim In-Point (Offset: ${(clip.trimIn || 0).toFixed(2)}s)`}
                           >
-                            <div className="w-1 h-5 bg-white/40 group-hover/trimIn:bg-white rounded-r-sm shadow-sm transition" />
+                            <div className="w-1 h-5 bg-white/40 group-hover/trimIn:bg-white rounded-r-sm shadow-sm transition-colors duration-150" />
                           </div>
 
                           {/* Right Trim Handle (Out-Point) */}
                           <div
                             onMouseDown={(e) => handleTrimStart(clip, 'out', e)}
-                            className={`absolute right-0 top-0 bottom-0 w-2.5 hover:w-3.5 z-30 transition-all cursor-col-resize flex items-center justify-end pr-0.5 group/trimOut ${
+                            className={`absolute right-0 top-0 bottom-0 w-2.5 hover:w-3.5 z-30 transition-[width,background-color] duration-150 cursor-col-resize flex items-center justify-end pr-0.5 group/trimOut ${
                               activeTool === 'razor' ? 'pointer-events-none' : ''
                             }`}
                             title={`Trim Out-Point (Duration: ${clip.duration.toFixed(2)}s)`}
                           >
-                            <div className="w-1 h-5 bg-white/40 group-hover/trimOut:bg-white rounded-l-sm shadow-sm transition" />
+                            <div className="w-1 h-5 bg-white/40 group-hover/trimOut:bg-white rounded-l-sm shadow-sm transition-colors duration-150" />
                           </div>
 
                           {/* Razor Cut Guideline (when hovering in Razor tool mode) */}
