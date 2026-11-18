@@ -54,6 +54,8 @@ export const StudioPage: React.FC<StudioPageProps> = ({ onBackToLibrary }) => {
   const audioCtxRef = useRef<AudioContext | null>(null);
   const activeSourcesRef = useRef<Map<string, { source: AudioBufferSourceNode; gain: GainNode }>>(new Map());
   const cachedBuffersRef = useRef<Map<number, AudioBuffer>>(new Map());
+  const seekRafRef = useRef<number | null>(null);
+  const pendingSeekTimeRef = useRef<number | null>(null);
 
   // Initialize or get AudioContext
   const getAudioContext = useCallback(() => {
@@ -203,8 +205,25 @@ export const StudioPage: React.FC<StudioPageProps> = ({ onBackToLibrary }) => {
     stopAllAudioSources();
   };
 
+  // 60fps Playhead animation loop during video playback
+  useEffect(() => {
+    let animId: number;
+    if (isPlaying) {
+      const loop = () => {
+        if (videoRef.current) {
+          setCurrentTime(videoRef.current.currentTime);
+        }
+        animId = requestAnimationFrame(loop);
+      };
+      animId = requestAnimationFrame(loop);
+    }
+    return () => {
+      if (animId) cancelAnimationFrame(animId);
+    };
+  }, [isPlaying]);
+
   const handleTimeUpdate = () => {
-    if (videoRef.current) {
+    if (videoRef.current && !isPlaying) {
       setCurrentTime(videoRef.current.currentTime);
     }
   };
@@ -220,11 +239,30 @@ export const StudioPage: React.FC<StudioPageProps> = ({ onBackToLibrary }) => {
     }
   };
 
+  // Fluid 60fps playhead scrubbing with throttled video decoding
   const handleSeek = (newTime: number) => {
-    if (videoRef.current) {
-      videoRef.current.currentTime = newTime;
-    }
+    // 1. Immediately update local state so playhead tracks cursor at 60fps without lag
     setCurrentTime(newTime);
+    pendingSeekTimeRef.current = newTime;
+
+    // 2. Throttle the heavier <video> seek via requestAnimationFrame
+    if (seekRafRef.current === null) {
+      seekRafRef.current = requestAnimationFrame(() => {
+        seekRafRef.current = null;
+        if (videoRef.current && pendingSeekTimeRef.current !== null) {
+          const target = pendingSeekTimeRef.current;
+          if ('fastSeek' in videoRef.current) {
+            try {
+              (videoRef.current as any).fastSeek(target);
+            } catch {
+              videoRef.current.currentTime = target;
+            }
+          } else {
+            videoRef.current.currentTime = target;
+          }
+        }
+      });
+    }
   };
 
   const handleStepFrame = (deltaFrames: number) => {
