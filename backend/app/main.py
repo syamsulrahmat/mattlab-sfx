@@ -15,6 +15,7 @@ from app.db.database import init_db, get_db, get_setting, set_setting
 from app.api.routes_search import router as search_router
 from app.api.routes_audio import router as audio_router
 from app.api.routes_auth import router as auth_router
+from app.api.routes_studio import router as studio_router
 from app.auth import require_admin
 from app.scanner.crawler import scan_library, scan_status
 from app.ai.batch_worker import (
@@ -70,6 +71,7 @@ def on_startup():
 app.include_router(auth_router, prefix="/api")
 app.include_router(search_router, prefix="/api")
 app.include_router(audio_router, prefix="/api")
+app.include_router(studio_router, prefix="/api")
 
 @app.post("/api/scan")
 def trigger_scan(background_tasks: BackgroundTasks, current_admin: dict = Depends(require_admin)):

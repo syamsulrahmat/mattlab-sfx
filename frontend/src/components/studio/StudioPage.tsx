@@ -18,11 +18,16 @@ import {
   Sparkles,
   Loader2,
   CheckCircle2,
-  AlertCircle
+  AlertCircle,
+  Save,
+  FolderOpen,
+  Edit2,
+  Check
 } from 'lucide-react';
-import { StudioTrack, StudioClip, DEFAULT_TRACKS } from './types';
+import { StudioTrack, StudioClip, DEFAULT_TRACKS, StudioProject } from './types';
 import { StudioTimeline } from './StudioTimeline';
 import { StudioPalette } from './StudioPalette';
+import { StudioProjectsHub } from './StudioProjectsHub';
 import { audioBufferToWavBlob } from './wavEncoder';
 
 interface StudioPageProps {
@@ -70,10 +75,143 @@ export const StudioPage: React.FC<StudioPageProps> = ({ onBackToLibrary }) => {
   const [canUndo, setCanUndo] = useState(false);
   const [canRedo, setCanRedo] = useState(false);
 
+  // Active Project & Persistence State
+  const [activeProject, setActiveProject] = useState<StudioProject | null>(null);
+  const [saveStatus, setSaveStatus] = useState<'saved' | 'saving' | 'unsaved'>('saved');
+  const [isEditingTitle, setIsEditingTitle] = useState(false);
+  const [titleInput, setTitleInput] = useState('');
+  const autoSaveTimerRef = useRef<NodeJS.Timeout | null>(null);
+
   const updateUndoRedoState = useCallback(() => {
     setCanUndo(pastRef.current.length > 0);
     setCanRedo(futureRef.current.length > 0);
   }, []);
+
+  const handleOpenProject = useCallback((project: StudioProject) => {
+    setActiveProject(project);
+    setTracks(project.tracks?.length ? project.tracks : DEFAULT_TRACKS);
+    setClips(project.clips || []);
+    setDuration(project.video_duration || 0);
+    setFps(project.video_fps || 24);
+    setTitleInput(project.title);
+    setVideoFile(null);
+    setVideoSrc(null);
+    setCurrentTime(0);
+    pastRef.current = [];
+    futureRef.current = [];
+    setCanUndo(false);
+    setCanRedo(false);
+    setSaveStatus('saved');
+  }, []);
+
+  const handleNewBlankProject = useCallback(async () => {
+    try {
+      const res = await fetch('/api/studio/projects', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title: 'Untitled Studio Project',
+          tracks: DEFAULT_TRACKS,
+          clips: [],
+        }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        handleOpenProject(data.project);
+        return;
+      }
+    } catch (e) {
+      console.warn('Failed to auto-create project on server:', e);
+    }
+    handleOpenProject({
+      id: `proj_${Date.now()}`,
+      title: 'Untitled Studio Project',
+      tracks: DEFAULT_TRACKS,
+      clips: [],
+    });
+  }, [handleOpenProject]);
+
+  const handleSaveProject = useCallback(async (customTitle?: string) => {
+    if (!activeProject) return;
+    try {
+      setSaveStatus('saving');
+      const titleToSave = customTitle !== undefined ? customTitle.trim() : (activeProject.title || 'Untitled Studio Project');
+      const res = await fetch(`/api/studio/projects/${activeProject.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title: titleToSave,
+          video_filename: videoFile?.name || activeProject.video_filename || '',
+          video_duration: duration,
+          video_fps: fps,
+          tracks,
+          clips,
+        }),
+      });
+      if (!res.ok) throw new Error('Failed to save project');
+      const data = await res.json();
+      setActiveProject(data.project);
+      setSaveStatus('saved');
+      setStatusMessage({ text: 'Project saved', type: 'success' });
+      setTimeout(() => setStatusMessage(null), 2000);
+    } catch (e: any) {
+      setSaveStatus('unsaved');
+      setStatusMessage({ text: e.message || 'Error saving project', type: 'error' });
+      setTimeout(() => setStatusMessage(null), 3000);
+    }
+  }, [activeProject, videoFile, duration, fps, tracks, clips]);
+
+  const handleReturnToProjects = useCallback(async () => {
+    if (activeProject && saveStatus === 'unsaved') {
+      await handleSaveProject();
+    }
+    stopAllAudioSources();
+    if (videoSrc) {
+      URL.revokeObjectURL(videoSrc);
+      setVideoSrc(null);
+    }
+    setVideoFile(null);
+    setActiveProject(null);
+  }, [activeProject, saveStatus, handleSaveProject, videoSrc]);
+
+  // Debounced auto-save (2 seconds after timeline changes)
+  useEffect(() => {
+    if (!activeProject) return;
+    setSaveStatus('unsaved');
+    if (autoSaveTimerRef.current) {
+      clearTimeout(autoSaveTimerRef.current);
+    }
+    autoSaveTimerRef.current = setTimeout(async () => {
+      try {
+        setSaveStatus('saving');
+        const res = await fetch(`/api/studio/projects/${activeProject.id}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            title: activeProject.title,
+            video_filename: videoFile?.name || activeProject.video_filename || '',
+            video_duration: duration,
+            video_fps: fps,
+            tracks,
+            clips,
+          }),
+        });
+        if (res.ok) {
+          setSaveStatus('saved');
+        } else {
+          setSaveStatus('unsaved');
+        }
+      } catch {
+        setSaveStatus('unsaved');
+      }
+    }, 2000);
+
+    return () => {
+      if (autoSaveTimerRef.current) {
+        clearTimeout(autoSaveTimerRef.current);
+      }
+    };
+  }, [clips, tracks, duration, fps]);
 
   // Exporting state
   const [isExportingWav, setIsExportingWav] = useState(false);
@@ -451,6 +589,14 @@ export const StudioPage: React.FC<StudioPageProps> = ({ onBackToLibrary }) => {
       const activeTag = (document.activeElement?.tagName || '').toLowerCase();
       if (activeTag === 'input' || activeTag === 'textarea') return;
 
+      // Save Project: Ctrl+S / Cmd+S
+      if ((e.ctrlKey || e.metaKey) && (e.key === 's' || e.key === 'S')) {
+        e.preventDefault();
+        e.stopPropagation();
+        handleSaveProject();
+        return;
+      }
+
       // Toggle Sound Palette drawer: [P] or [B] (without Ctrl/Alt/Meta)
       if ((e.key === 'p' || e.key === 'P' || e.key === 'b' || e.key === 'B') && !e.ctrlKey && !e.metaKey && !e.altKey) {
         e.preventDefault();
@@ -498,7 +644,7 @@ export const StudioPage: React.FC<StudioPageProps> = ({ onBackToLibrary }) => {
 
     window.addEventListener('keydown', handleKeyDown, { capture: true });
     return () => window.removeEventListener('keydown', handleKeyDown, { capture: true });
-  }, [fps, duration, handleUndo, handleRedo, togglePlay]);
+  }, [fps, duration, handleUndo, handleRedo, togglePlay, handleSaveProject]);
 
   // Clean up on unmount
   useEffect(() => {
@@ -761,36 +907,100 @@ export const StudioPage: React.FC<StudioPageProps> = ({ onBackToLibrary }) => {
     return `${m < 10 ? '0' : ''}${m}:${s < 10 ? '0' : ''}${s}.${ms < 10 ? '0' : ''}${ms}`;
   };
 
+  // If no project is currently selected, render the dedicated Studio Projects Hub Start Screen
+  if (!activeProject) {
+    return (
+      <StudioProjectsHub
+        onOpenProject={handleOpenProject}
+        onNewBlankProject={handleNewBlankProject}
+        onBackToLibrary={onBackToLibrary}
+      />
+    );
+  }
+
   return (
     <div className="flex flex-col h-screen w-full bg-slate-950 text-slate-100 overflow-hidden">
       {/* Studio Top Navigation Bar */}
-      <div className="h-12 border-b border-slate-800 bg-slate-900/90 px-4 flex items-center justify-between shrink-0 z-30">
-        <div className="flex items-center gap-3">
+      <div className="h-12 border-b border-slate-800 bg-slate-900/90 px-3 sm:px-4 flex items-center justify-between shrink-0 z-30">
+        <div className="flex items-center gap-2 sm:gap-3">
+          {/* Back to Projects Start Screen */}
           <button
-            onClick={onBackToLibrary}
-            className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold text-slate-400 hover:text-white hover:bg-slate-800 transition cursor-pointer"
+            onClick={handleReturnToProjects}
+            className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold text-slate-300 hover:text-white bg-slate-800/80 hover:bg-slate-800 border border-slate-700/80 transition cursor-pointer"
+            title="Return to Studio Projects Hub (Saves pending changes)"
           >
-            <ChevronLeft className="w-4 h-4" />
-            <span>Sound Library</span>
+            <FolderOpen className="w-3.5 h-3.5 text-indigo-400" />
+            <span className="hidden sm:inline">Projects</span>
           </button>
 
           <div className="h-4 w-px bg-slate-800" />
 
-          <div className="flex items-center gap-2">
-            <div className="p-1.5 rounded-lg bg-gradient-to-tr from-violet-600 to-indigo-600 text-white shadow-sm">
-              <Film className="w-4 h-4 text-amber-300" />
+          {/* Project Title with Inline Rename */}
+          {isEditingTitle ? (
+            <div className="flex items-center gap-1">
+              <input
+                type="text"
+                value={titleInput}
+                autoFocus
+                onChange={(e) => setTitleInput(e.target.value)}
+                onKeyDown={(e) => {
+                  e.stopPropagation();
+                  if (e.key === 'Enter') {
+                    setIsEditingTitle(false);
+                    if (titleInput.trim()) {
+                      handleSaveProject(titleInput.trim());
+                    }
+                  } else if (e.key === 'Escape') {
+                    setIsEditingTitle(false);
+                    setTitleInput(activeProject?.title || 'Untitled Studio Project');
+                  }
+                }}
+                onBlur={() => {
+                  setIsEditingTitle(false);
+                  if (titleInput.trim()) {
+                    handleSaveProject(titleInput.trim());
+                  }
+                }}
+                className="bg-slate-950 border border-indigo-500 rounded px-2 py-0.5 text-xs text-white font-bold max-w-[160px] sm:max-w-xs focus:outline-none"
+              />
             </div>
-            <div>
-              <div className="flex items-center gap-1.5">
-                <h2 className="text-xs font-bold text-white uppercase tracking-wider">
-                  MattLab Studio Lab
-                </h2>
-                <span className="text-[9px] font-bold px-1.5 py-0.2 rounded bg-amber-500/20 text-amber-300 border border-amber-500/30">
-                  STUDIO
-                </span>
-              </div>
+          ) : (
+            <div
+              onClick={() => setIsEditingTitle(true)}
+              className="flex items-center gap-1.5 group/title cursor-text px-1.5 py-0.5 rounded hover:bg-slate-800/60 transition"
+              title="Click to rename project"
+            >
+              <h2 className="text-xs font-bold text-white max-w-[140px] sm:max-w-xs truncate">
+                {activeProject?.title || 'Untitled Studio Project'}
+              </h2>
+              <Edit2 className="w-3 h-3 text-slate-500 opacity-0 group-hover/title:opacity-100 transition shrink-0" />
             </div>
-          </div>
+          )}
+
+          {/* Save Status Badge & Button */}
+          <button
+            onClick={() => handleSaveProject()}
+            disabled={saveStatus === 'saving'}
+            className={`flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-medium transition cursor-pointer border ${
+              saveStatus === 'saved'
+                ? 'bg-slate-800/40 text-slate-400 border-slate-700/60 hover:text-white'
+                : saveStatus === 'saving'
+                ? 'bg-indigo-950/60 text-indigo-300 border-indigo-700/50'
+                : 'bg-amber-950/50 text-amber-300 border-amber-600/50 hover:bg-amber-900/60'
+            }`}
+            title="Save Project [Ctrl+S]"
+          >
+            {saveStatus === 'saving' ? (
+              <Loader2 className="w-3 h-3 animate-spin text-indigo-400" />
+            ) : saveStatus === 'saved' ? (
+              <Check className="w-3 h-3 text-emerald-400" />
+            ) : (
+              <Save className="w-3 h-3 text-amber-400" />
+            )}
+            <span className="hidden md:inline">
+              {saveStatus === 'saving' ? 'Saving...' : saveStatus === 'saved' ? 'Saved' : 'Save'}
+            </span>
+          </button>
         </div>
 
         {/* Center: Status Message Toast */}
@@ -920,6 +1130,35 @@ export const StudioPage: React.FC<StudioPageProps> = ({ onBackToLibrary }) => {
                     />
                   </label>
                 </div>
+              </div>
+            ) : activeProject?.video_filename ? (
+              /* Re-attach Specific Video Guide Drop Zone */
+              <div
+                onDragOver={(e) => e.preventDefault()}
+                onDrop={handleDrop}
+                className="flex-1 flex flex-col items-center justify-center p-6 border-2 border-dashed border-amber-500/40 hover:border-amber-400 rounded-2xl m-3 bg-amber-950/10 transition text-center group cursor-pointer"
+              >
+                <div className="w-14 h-14 rounded-2xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-center text-amber-400 mb-3 group-hover:scale-110 transition">
+                  <Film className="w-7 h-7" />
+                </div>
+                <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/30 text-xs font-mono mb-2">
+                  <span>Re-attach Guide:</span>
+                  <span className="font-bold">{activeProject.video_filename}</span>
+                  {duration > 0 && <span>({duration.toFixed(1)}s)</span>}
+                </div>
+                <p className="text-xs text-slate-400 max-w-md mb-4 leading-relaxed">
+                  Drop <strong className="text-white">{activeProject.video_filename}</strong> here to restore synchronized video preview, or continue working with your audio timeline.
+                </p>
+                <label className="flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-semibold bg-amber-600 hover:bg-amber-500 text-white shadow-md shadow-amber-600/30 transition cursor-pointer">
+                  <Upload className="w-3.5 h-3.5" />
+                  <span>Locate {activeProject.video_filename}</span>
+                  <input
+                    type="file"
+                    accept="video/*"
+                    onChange={(e) => e.target.files?.[0] && handleVideoSelect(e.target.files[0])}
+                    className="hidden"
+                  />
+                </label>
               </div>
             ) : (
               /* Drag & Drop Upload Zone */
