@@ -55,6 +55,7 @@ export const StudioPage: React.FC<StudioPageProps> = ({ onBackToLibrary }) => {
           return DEFAULT_TRACKS.map((def, idx) => ({
             ...def,
             name: parsed[idx]?.name || def.name,
+            height: parsed[idx]?.height || def.height || 64,
           }));
         }
       }
@@ -719,6 +720,41 @@ export const StudioPage: React.FC<StudioPageProps> = ({ onBackToLibrary }) => {
       prev.map((t) => (t.id === trackId ? { ...t, volume } : t))
     );
   };
+
+  const handleUpdateTrackHeight = useCallback((trackId: number, height: number) => {
+    const clamped = Math.max(36, Math.min(200, Math.round(height)));
+    setTracks((prev) => {
+      const next = prev.map((t) => (t.id === trackId ? { ...t, height: clamped } : t));
+      try {
+        localStorage.setItem(
+          'mattlab_sfx_studio_tracks',
+          JSON.stringify(next.map((t) => ({ id: t.id, name: t.name, height: t.height })))
+        );
+      } catch (e) {
+        // ignore
+      }
+      return next;
+    });
+  }, []);
+
+  const handleUpdateAllTrackHeights = useCallback((delta: number) => {
+    setTracks((prev) => {
+      const next = prev.map((t) => {
+        const curHeight = t.height || 64;
+        const clamped = Math.max(36, Math.min(200, Math.round(curHeight + delta)));
+        return { ...t, height: clamped };
+      });
+      try {
+        localStorage.setItem(
+          'mattlab_sfx_studio_tracks',
+          JSON.stringify(next.map((t) => ({ id: t.id, name: t.name, height: t.height })))
+        );
+      } catch (e) {
+        // ignore
+      }
+      return next;
+    });
+  }, []);
 
   const handleUpdateClip = (clipId: string, updates: Partial<StudioClip>) => {
     setClips((prev) =>
@@ -1548,6 +1584,8 @@ export const StudioPage: React.FC<StudioPageProps> = ({ onBackToLibrary }) => {
               onToggleMute={handleToggleMute}
               onToggleSolo={handleToggleSolo}
               onUpdateTrackVolume={handleUpdateTrackVolume}
+              onUpdateTrackHeight={handleUpdateTrackHeight}
+              onUpdateAllTrackHeights={handleUpdateAllTrackHeights}
             />
           </div>
         </div>

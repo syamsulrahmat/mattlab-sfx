@@ -23,6 +23,7 @@ export interface StudioTrack {
   muted: boolean;
   solo: boolean;
   volume: number; // 0.0 to 1.5
+  height?: number; // Layer track height in px (min: 36, max: 200, default: 64)
 }
 
 export const DEFAULT_TRACKS: StudioTrack[] = [

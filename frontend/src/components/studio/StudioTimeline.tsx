@@ -59,6 +59,8 @@ interface StudioTimelineProps {
   onToggleMute: (trackId: number) => void;
   onToggleSolo: (trackId: number) => void;
   onUpdateTrackVolume: (trackId: number, volume: number) => void;
+  onUpdateTrackHeight?: (trackId: number, height: number) => void;
+  onUpdateAllTrackHeights?: (delta: number) => void;
 }
 
 export const StudioTimeline: React.FC<StudioTimelineProps> = React.memo(({
@@ -87,6 +89,8 @@ export const StudioTimeline: React.FC<StudioTimelineProps> = React.memo(({
   onToggleMute,
   onToggleSolo,
   onUpdateTrackVolume,
+  onUpdateTrackHeight,
+  onUpdateAllTrackHeights,
 }) => {
   const [pps, setPps] = useState(60); // pixels per second
   const [draggingClipId, setDraggingClipId] = useState<string | null>(null);
@@ -118,6 +122,8 @@ export const StudioTimeline: React.FC<StudioTimelineProps> = React.memo(({
   
   const timelineContainerRef = useRef<HTMLDivElement | null>(null);
   const timelineRef = useRef<HTMLDivElement | null>(null);
+  const headersScrollRef = useRef<HTMLDivElement | null>(null);
+  const isSyncingVerticalScrollRef = useRef(false);
   const playheadRef = useRef<HTMLDivElement | null>(null);
   const dragStartRef = useRef<{ startX: number; initialTime: number }>({ startX: 0, initialTime: 0 });
   const isDraggingScrubberRef = useRef(false);
@@ -646,8 +652,29 @@ export const StudioTimeline: React.FC<StudioTimelineProps> = React.memo(({
 
       const formattedStartTime = parseFloat(newStartTime.toFixed(3));
       const deltaY = moveEvent.clientY - startY;
-      const trackDelta = Math.round(deltaY / 64); // 64px is h-16
-      const newTrackId = Math.max(0, Math.min(tracks.length - 1, initialTrackId + trackDelta));
+
+      // Calculate dynamic target track based on variable track heights
+      let baseCenterY = 0;
+      for (let i = 0; i < initialTrackId; i++) {
+        baseCenterY += (tracks[i]?.height || 64);
+      }
+      baseCenterY += (tracks[initialTrackId]?.height || 64) / 2;
+      const targetCenterY = baseCenterY + deltaY;
+
+      let newTrackId = 0;
+      let cumulativeHeight = 0;
+      for (let i = 0; i < tracks.length; i++) {
+        const h = tracks[i]?.height || 64;
+        if (targetCenterY >= cumulativeHeight && targetCenterY < cumulativeHeight + h) {
+          newTrackId = i;
+          break;
+        }
+        cumulativeHeight += h;
+        if (i === tracks.length - 1) {
+          newTrackId = tracks.length - 1;
+        }
+      }
+      newTrackId = Math.max(0, Math.min(tracks.length - 1, newTrackId));
 
       latestStartTime = formattedStartTime;
       latestTrackId = newTrackId;
@@ -718,6 +745,11 @@ export const StudioTimeline: React.FC<StudioTimelineProps> = React.memo(({
     if (!el) return;
 
     const handleNativeWheel = (e: WheelEvent) => {
+      // If hovering over the track headers column on the left, let track height scaling handle it
+      if (headersScrollRef.current && headersScrollRef.current.contains(e.target as Node)) {
+        return;
+      }
+
       // Zoom if Ctrl, Meta (Cmd), or Alt is held
       if (e.ctrlKey || e.metaKey || e.altKey) {
         e.preventDefault();
@@ -769,6 +801,110 @@ export const StudioTimeline: React.FC<StudioTimelineProps> = React.memo(({
       }
     };
   }, [getFitPps]);
+
+  // Track Headers Wheel listener for Alt+Scroll (per layer) and Shift+Scroll (all layers)
+  useEffect(() => {
+    const el = headersScrollRef.current;
+    if (!el) return;
+
+    const handleHeadersWheel = (e: WheelEvent) => {
+      if (e.altKey) {
+        e.preventDefault();
+        e.stopPropagation();
+        const target = e.target as HTMLElement | null;
+        const trackHeaderEl = target?.closest('[data-track-id]') as HTMLElement | null;
+        const trackIdStr = trackHeaderEl?.getAttribute('data-track-id');
+        if (trackIdStr !== null && trackIdStr !== undefined) {
+          const trackId = parseInt(trackIdStr, 10);
+          const currentTrack = tracks.find((t) => t.id === trackId);
+          const currentHeight = currentTrack?.height || 64;
+          const delta = e.deltaY < 0 ? 8 : -8;
+          const newHeight = Math.max(36, Math.min(200, currentHeight + delta));
+          onUpdateTrackHeight?.(trackId, newHeight);
+        }
+      } else if (e.shiftKey) {
+        e.preventDefault();
+        e.stopPropagation();
+        const rawDelta = Math.abs(e.deltaY) > 0 ? e.deltaY : e.deltaX;
+        const delta = rawDelta < 0 ? 8 : -8;
+        onUpdateAllTrackHeights?.(delta);
+      }
+    };
+
+    el.addEventListener('wheel', handleHeadersWheel, { passive: false });
+    return () => {
+      el.removeEventListener('wheel', handleHeadersWheel);
+    };
+  }, [tracks, onUpdateTrackHeight, onUpdateAllTrackHeights]);
+
+  // Track Header Resize via dragging bottom divider (Premiere Pro style)
+  const handleStartHeaderResize = useCallback((trackId: number, e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+
+    const startY = e.clientY;
+    const currentTrack = tracks.find((t) => t.id === trackId);
+    const startHeight = currentTrack?.height || 64;
+    const isShift = e.shiftKey;
+    let lastDelta = 0;
+
+    const onMouseMove = (moveEvent: MouseEvent) => {
+      const deltaY = moveEvent.clientY - startY;
+      if (moveEvent.shiftKey || isShift) {
+        const step = deltaY - lastDelta;
+        lastDelta = deltaY;
+        onUpdateAllTrackHeights?.(step);
+      } else {
+        const targetHeight = Math.max(36, Math.min(200, Math.round(startHeight + deltaY)));
+        onUpdateTrackHeight?.(trackId, targetHeight);
+      }
+    };
+
+    const onMouseUp = () => {
+      window.removeEventListener('mousemove', onMouseMove);
+      window.removeEventListener('mouseup', onMouseUp);
+    };
+
+    window.addEventListener('mousemove', onMouseMove);
+    window.addEventListener('mouseup', onMouseUp);
+  }, [tracks, onUpdateTrackHeight, onUpdateAllTrackHeights]);
+
+  // Double-Click Header / Divider Toggle (Compact 38px <-> Standard 64px)
+  const handleToggleTrackHeight = useCallback((trackId: number, e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const currentTrack = tracks.find((t) => t.id === trackId);
+    const currentHeight = currentTrack?.height || 64;
+    const nextHeight = currentHeight <= 44 ? 64 : 38;
+    if (e.shiftKey) {
+      tracks.forEach((t) => onUpdateTrackHeight?.(t.id, nextHeight));
+    } else {
+      onUpdateTrackHeight?.(trackId, nextHeight);
+    }
+  }, [tracks, onUpdateTrackHeight]);
+
+  // Synchronized Vertical Scrolling between Left Headers and Right Lanes
+  const handleHeadersScroll = useCallback((e: React.UIEvent<HTMLDivElement>) => {
+    if (isSyncingVerticalScrollRef.current) return;
+    isSyncingVerticalScrollRef.current = true;
+    if (timelineRef.current) {
+      timelineRef.current.scrollTop = e.currentTarget.scrollTop;
+    }
+    requestAnimationFrame(() => {
+      isSyncingVerticalScrollRef.current = false;
+    });
+  }, []);
+
+  const handleTimelineVerticalScroll = useCallback((e: React.UIEvent<HTMLDivElement>) => {
+    if (isSyncingVerticalScrollRef.current) return;
+    isSyncingVerticalScrollRef.current = true;
+    if (headersScrollRef.current) {
+      headersScrollRef.current.scrollTop = e.currentTarget.scrollTop;
+    }
+    requestAnimationFrame(() => {
+      isSyncingVerticalScrollRef.current = false;
+    });
+  }, []);
 
   return (
     <div
@@ -917,126 +1053,223 @@ export const StudioTimeline: React.FC<StudioTimelineProps> = React.memo(({
 
       {/* Main Timeline Workspace: Left Header Columns + Right Scrolling Lanes */}
       <div className="flex flex-1 overflow-hidden">
-        {/* Left Track Headers (Fixed) */}
-        <div className="w-48 shrink-0 flex flex-col border-r border-slate-800 bg-slate-900/90 z-20">
+        {/* Left Track Headers (Fixed with Premiere Pro-style track height scaling) */}
+        <div
+          ref={headersScrollRef}
+          onScroll={handleHeadersScroll}
+          className="w-52 shrink-0 flex flex-col border-r border-slate-800 bg-slate-900/90 z-20 overflow-y-auto overflow-x-hidden scrollbar-none select-none"
+        >
           {/* Ruler Header Blank */}
-          <div className="h-7 border-b border-slate-800 flex items-center px-3 text-[10px] font-bold text-slate-400 uppercase tracking-wider bg-slate-950/40">
-            Tracks
+          <div className="h-7 border-b border-slate-800 flex items-center justify-between px-2.5 text-[10px] font-bold text-slate-400 uppercase tracking-wider bg-slate-950/40 select-none">
+            <span>Tracks</span>
+            <span
+              className="text-[8.5px] font-mono text-slate-500 font-normal lowercase tracking-normal"
+              title="Alt+Scroll on layer to resize, Shift+Scroll to resize all"
+            >
+              alt/shift+scroll
+            </span>
           </div>
 
           {/* Track Headers */}
           <div className="flex-1 flex flex-col">
             {tracks.map((track) => {
               const isSelected = selectedTrackId === track.id;
+              const trackHeight = track.height || 64;
+              const isCompact = trackHeight < 50;
+
               return (
                 <div
                   key={track.id}
+                  data-track-id={track.id}
                   onClick={() => onSelectTrack(track.id)}
-                  className={`h-16 border-b border-slate-800/80 p-2 flex flex-col justify-between transition cursor-pointer ${
+                  style={{ height: `${trackHeight}px` }}
+                  className={`border-b border-slate-800/80 px-2 py-1.5 flex flex-col justify-between transition-[background-color,border-color] relative cursor-pointer select-none group/trackHeader ${
                     isSelected
                       ? 'bg-slate-800/80 border-l-4 border-l-indigo-500'
                       : 'bg-slate-900/50 hover:bg-slate-850'
                   }`}
                 >
-                  {/* Track Title & Tag with Inline Renaming */}
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-1.5 min-w-0 flex-1 mr-1">
-                      <span
-                        className={`text-[9px] font-bold font-mono px-1.5 py-0.5 rounded shrink-0 ${track.colorBg} ${track.colorText} border ${track.colorBorder}`}
-                      >
-                        {track.tag}
-                      </span>
-
-                      {editingTrackId === track.id ? (
-                        <input
-                          type="text"
-                          value={editTrackName}
-                          autoFocus
-                          onClick={(e) => e.stopPropagation()}
-                          onChange={(e) => setEditTrackName(e.target.value)}
-                          onKeyDown={(e) => {
-                            e.stopPropagation();
-                            if (e.key === 'Enter') {
-                              handleCommitRename(track.id);
-                            } else if (e.key === 'Escape') {
-                              setEditingTrackId(null);
-                            }
-                          }}
-                          onBlur={() => handleCommitRename(track.id)}
-                          className="bg-slate-950 border border-indigo-500 rounded px-1.5 py-0.5 text-xs text-white font-medium w-full focus:outline-none focus:ring-1 focus:ring-indigo-400"
-                        />
-                      ) : (
-                        <div
-                          onDoubleClick={(e) => handleStartRename(track, e)}
-                          className="flex items-center gap-1 min-w-0 group/rename cursor-text flex-1"
-                          title="Double-click or click pencil icon to rename track"
+                  {isCompact ? (
+                    /* Compact Single-Row Layout (< 50px) */
+                    <div className="flex items-center justify-between w-full h-full gap-1">
+                      <div className="flex items-center gap-1.5 min-w-0 flex-1">
+                        <span
+                          className={`text-[8.5px] font-bold font-mono px-1 py-0.2 rounded shrink-0 ${track.colorBg} ${track.colorText} border ${track.colorBorder}`}
                         >
-                          <span className="text-xs font-semibold text-slate-200 truncate">
+                          {track.tag}
+                        </span>
+
+                        {editingTrackId === track.id ? (
+                          <input
+                            type="text"
+                            value={editTrackName}
+                            autoFocus
+                            onClick={(e) => e.stopPropagation()}
+                            onChange={(e) => setEditTrackName(e.target.value)}
+                            onKeyDown={(e) => {
+                              e.stopPropagation();
+                              if (e.key === 'Enter') handleCommitRename(track.id);
+                              else if (e.key === 'Escape') setEditingTrackId(null);
+                            }}
+                            onBlur={() => handleCommitRename(track.id)}
+                            className="bg-slate-950 border border-indigo-500 rounded px-1 py-0 text-xs text-white font-medium w-full focus:outline-none"
+                          />
+                        ) : (
+                          <span
+                            onDoubleClick={(e) => handleStartRename(track, e)}
+                            className="text-xs font-semibold text-slate-200 truncate cursor-text"
+                            title="Double-click to rename track"
+                          >
                             {track.name}
                           </span>
-                          <button
-                            onClick={(e) => handleStartRename(track, e)}
-                            className="opacity-0 group-hover/rename:opacity-100 p-0.5 rounded hover:bg-slate-800 text-slate-400 hover:text-white transition shrink-0 cursor-pointer"
-                            title="Rename Track"
+                        )}
+                      </div>
+
+                      <div className="flex items-center gap-0.5 shrink-0">
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onToggleMute(track.id);
+                          }}
+                          className={`px-1 py-0.2 rounded text-[8.5px] font-mono font-bold transition cursor-pointer ${
+                            track.muted
+                              ? 'bg-rose-600 text-white shadow-sm'
+                              : 'bg-slate-800 text-slate-400 hover:text-white'
+                          }`}
+                          title="Mute Track"
+                        >
+                          M
+                        </button>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onToggleSolo(track.id);
+                          }}
+                          className={`px-1 py-0.2 rounded text-[8.5px] font-mono font-bold transition cursor-pointer ${
+                            track.solo
+                              ? 'bg-amber-500 text-slate-950 font-black shadow-sm'
+                              : 'bg-slate-800 text-slate-400 hover:text-white'
+                          }`}
+                          title="Solo Track"
+                        >
+                          S
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    /* Standard / Expanded 2-Row Layout (>= 50px) */
+                    <>
+                      {/* Track Title & Tag with Inline Renaming */}
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-1.5 min-w-0 flex-1 mr-1">
+                          <span
+                            className={`text-[9px] font-bold font-mono px-1.5 py-0.5 rounded shrink-0 ${track.colorBg} ${track.colorText} border ${track.colorBorder}`}
                           >
-                            <Edit2 className="w-2.5 h-2.5" />
+                            {track.tag}
+                          </span>
+
+                          {editingTrackId === track.id ? (
+                            <input
+                              type="text"
+                              value={editTrackName}
+                              autoFocus
+                              onClick={(e) => e.stopPropagation()}
+                              onChange={(e) => setEditTrackName(e.target.value)}
+                              onKeyDown={(e) => {
+                                e.stopPropagation();
+                                if (e.key === 'Enter') {
+                                  handleCommitRename(track.id);
+                                } else if (e.key === 'Escape') {
+                                  setEditingTrackId(null);
+                                }
+                              }}
+                              onBlur={() => handleCommitRename(track.id)}
+                              className="bg-slate-950 border border-indigo-500 rounded px-1.5 py-0.5 text-xs text-white font-medium w-full focus:outline-none focus:ring-1 focus:ring-indigo-400"
+                            />
+                          ) : (
+                            <div
+                              onDoubleClick={(e) => handleStartRename(track, e)}
+                              className="flex items-center gap-1 min-w-0 group/rename cursor-text flex-1"
+                              title="Double-click or click pencil icon to rename track"
+                            >
+                              <span className="text-xs font-semibold text-slate-200 truncate">
+                                {track.name}
+                              </span>
+                              <button
+                                onClick={(e) => handleStartRename(track, e)}
+                                className="opacity-0 group-hover/rename:opacity-100 p-0.5 rounded hover:bg-slate-800 text-slate-400 hover:text-white transition shrink-0 cursor-pointer"
+                                title="Rename Track"
+                              >
+                                <Edit2 className="w-2.5 h-2.5" />
+                              </button>
+                            </div>
+                          )}
+                        </div>
+
+                        {isSelected && editingTrackId !== track.id && (
+                          <span className="w-2 h-2 rounded-full bg-indigo-400 shadow-sm animate-pulse shrink-0" title="Active Spotting Track" />
+                        )}
+                      </div>
+
+                      {/* Track Controls: Mute, Solo, Volume */}
+                      <div className="flex items-center justify-between gap-1 pt-1">
+                        <div className="flex items-center gap-1">
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              onToggleMute(track.id);
+                            }}
+                            className={`px-1.5 py-0.5 rounded text-[9px] font-mono font-bold transition cursor-pointer ${
+                              track.muted
+                                ? 'bg-rose-600 text-white shadow-sm'
+                                : 'bg-slate-800 text-slate-400 hover:text-white'
+                            }`}
+                            title="Mute Track"
+                          >
+                            M
+                          </button>
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              onToggleSolo(track.id);
+                            }}
+                            className={`px-1.5 py-0.5 rounded text-[9px] font-mono font-bold transition cursor-pointer ${
+                              track.solo
+                                ? 'bg-amber-500 text-slate-950 font-black shadow-sm'
+                                : 'bg-slate-800 text-slate-400 hover:text-white'
+                            }`}
+                            title="Solo Track"
+                          >
+                            S
                           </button>
                         </div>
-                      )}
-                    </div>
 
-                    {isSelected && editingTrackId !== track.id && (
-                      <span className="w-2 h-2 rounded-full bg-indigo-400 shadow-sm animate-pulse shrink-0" title="Active Spotting Track" />
-                    )}
-                  </div>
+                        <div className="flex items-center gap-1">
+                          <Volume2 className="w-2.5 h-2.5 text-slate-500" />
+                          <input
+                            type="range"
+                            min="0"
+                            max="1.5"
+                            step="0.05"
+                            value={track.volume}
+                            onClick={(e) => e.stopPropagation()}
+                            onChange={(e) => onUpdateTrackVolume(track.id, parseFloat(e.target.value))}
+                            className="w-14 h-1 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-indigo-500"
+                            title={`Track Volume: ${Math.round(track.volume * 100)}%`}
+                          />
+                        </div>
+                      </div>
+                    </>
+                  )}
 
-                  {/* Track Controls: Mute, Solo, Volume */}
-                  <div className="flex items-center justify-between gap-1 pt-1">
-                    <div className="flex items-center gap-1">
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          onToggleMute(track.id);
-                        }}
-                        className={`px-1.5 py-0.5 rounded text-[9px] font-mono font-bold transition cursor-pointer ${
-                          track.muted
-                            ? 'bg-rose-600 text-white shadow-sm'
-                            : 'bg-slate-800 text-slate-400 hover:text-white'
-                        }`}
-                        title="Mute Track"
-                      >
-                        M
-                      </button>
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          onToggleSolo(track.id);
-                        }}
-                        className={`px-1.5 py-0.5 rounded text-[9px] font-mono font-bold transition cursor-pointer ${
-                          track.solo
-                            ? 'bg-amber-500 text-slate-950 font-black shadow-sm'
-                            : 'bg-slate-800 text-slate-400 hover:text-white'
-                        }`}
-                        title="Solo Track"
-                      >
-                        S
-                      </button>
-                    </div>
-
-                    <div className="flex items-center gap-1">
-                      <Volume2 className="w-2.5 h-2.5 text-slate-500" />
-                      <input
-                        type="range"
-                        min="0"
-                        max="1.5"
-                        step="0.05"
-                        value={track.volume}
-                        onClick={(e) => e.stopPropagation()}
-                        onChange={(e) => onUpdateTrackVolume(track.id, parseFloat(e.target.value))}
-                        className="w-14 h-1 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-indigo-500"
-                        title={`Track Volume: ${Math.round(track.volume * 100)}%`}
-                      />
-                    </div>
+                  {/* Premiere Pro-style Bottom Divider Resize Handle */}
+                  <div
+                    onMouseDown={(e) => handleStartHeaderResize(track.id, e)}
+                    onDoubleClick={(e) => handleToggleTrackHeight(track.id, e)}
+                    className="absolute -bottom-1 left-0 right-0 h-2 cursor-row-resize hover:bg-indigo-500/50 z-30 transition-colors group/resizer flex items-center justify-center"
+                    title="Alt+Scroll to resize • Shift+Scroll to resize all • Drag to resize • Double-click to toggle"
+                  >
+                    <div className="w-8 h-0.5 bg-slate-700/60 group-hover/resizer:bg-indigo-400 rounded-full transition-colors" />
                   </div>
                 </div>
               );
@@ -1047,7 +1280,8 @@ export const StudioTimeline: React.FC<StudioTimelineProps> = React.memo(({
         {/* Right Scrolling Timeline Lanes */}
         <div
           ref={timelineRef}
-          className="flex-1 overflow-x-auto overflow-y-hidden relative bg-slate-950/90"
+          onScroll={handleTimelineVerticalScroll}
+          className="flex-1 overflow-x-auto overflow-y-auto relative bg-slate-950/90"
         >
           <div style={{ width: `${totalWidth}px` }} className="relative h-full flex flex-col">
             {/* Time Ruler (Draggable Scrubber) */}
@@ -1139,13 +1373,14 @@ export const StudioTimeline: React.FC<StudioTimelineProps> = React.memo(({
                 return (
                   <div
                     key={track.id}
+                    style={{ height: `${track.height || 64}px` }}
                     onMouseDown={(e) => {
                       setSelectedClipId(null);
                       setLayerMenuClipId(null);
                       onSelectTrack(track.id);
                       handleScrubStart(e);
                     }}
-                    className={`h-16 border-b border-slate-800/60 relative transition-colors duration-150 cursor-crosshair ${
+                    className={`border-b border-slate-800/60 relative transition-colors duration-150 cursor-crosshair ${
                       isSelected ? 'bg-slate-900/40' : 'bg-transparent'
                     }`}
                   >
