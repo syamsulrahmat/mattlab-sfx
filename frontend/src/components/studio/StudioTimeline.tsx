@@ -80,11 +80,11 @@ export const StudioTimeline: React.FC<StudioTimelineProps> = React.memo(({
   // Track previous zoom level and fit state
   const prevZoomLevelRef = useRef<number>(60);
 
-  // Calculate current fit PPS based on viewport
+  // Calculate current fit PPS based on viewport so sequence always fills 100% of window
   const getFitPps = useCallback(() => {
     if (!timelineRef.current || !duration || duration <= 0) return 20;
     const clientWidth = timelineRef.current.clientWidth;
-    return parseFloat(Math.max(4, Math.min(240, (clientWidth - 28) / duration)).toFixed(2));
+    return parseFloat(Math.max(4, Math.min(240, (clientWidth - 20) / duration)).toFixed(2));
   }, [duration]);
 
   // Premiere-style "Zoom to Fit / Zoom Back to Playhead" ( \ shortcut toggle )
@@ -100,7 +100,7 @@ export const StudioTimeline: React.FC<StudioTimelineProps> = React.memo(({
       // Restore previous zoom level (or default 60px/s if prev was fit)
       const targetPps = prevZoomLevelRef.current && Math.abs(prevZoomLevelRef.current - fitPps) > 2
         ? prevZoomLevelRef.current
-        : 60;
+        : Math.max(fitPps * 2.5, 60);
 
       setPps(targetPps);
 
@@ -121,17 +121,33 @@ export const StudioTimeline: React.FC<StudioTimelineProps> = React.memo(({
     }
   }, [duration, pps, currentTime, getFitPps]);
 
-  // Auto-fit to sequence on initial load
-  const hasAutoFittedRef = useRef(false);
+  // Auto-fit to sequence on initial load and video change
   useEffect(() => {
-    if (duration > 0 && !hasAutoFittedRef.current) {
-      hasAutoFittedRef.current = true;
-      if (timelineRef.current) {
-        const clientWidth = timelineRef.current.clientWidth;
-        const initialFitPps = parseFloat(Math.max(4, Math.min(240, (clientWidth - 28) / duration)).toFixed(2));
-        setPps(initialFitPps);
-      }
+    if (duration > 0 && timelineRef.current) {
+      const clientWidth = timelineRef.current.clientWidth;
+      const initialFitPps = parseFloat(Math.max(4, Math.min(240, (clientWidth - 20) / duration)).toFixed(2));
+      setPps(initialFitPps);
+      prevZoomLevelRef.current = Math.max(initialFitPps * 2.5, 60);
     }
+  }, [duration]);
+
+  // Keep sequence fitted to window on window resize or sound palette collapse/expand
+  useEffect(() => {
+    const timelineEl = timelineRef.current;
+    if (!timelineEl) return;
+
+    const ro = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        const newWidth = entry.contentRect.width;
+        if (newWidth > 100 && duration > 0) {
+          const newFit = parseFloat(Math.max(4, Math.min(240, (newWidth - 20) / duration)).toFixed(2));
+          setPps((current) => (current <= newFit + 2 ? newFit : current));
+        }
+      }
+    });
+
+    ro.observe(timelineEl);
+    return () => ro.disconnect();
   }, [duration]);
 
   // Time ruler ticks (cleanly capped at duration)
@@ -150,27 +166,32 @@ export const StudioTimeline: React.FC<StudioTimelineProps> = React.memo(({
     return list;
   }, [duration, pps]);
 
-  // Zoom helpers
-  const zoomIn = useCallback(() => {
-    setPps((prev) => {
-      const next = Math.min(240, prev + 15);
-      prevZoomLevelRef.current = next;
-      return next;
-    });
-  }, []);
+  // Smooth keyboard zoom centered on the playhead
+  const zoomStep = useCallback((factor: number) => {
+    const timelineEl = timelineRef.current;
+    const fitPps = getFitPps();
+    const targetPps = Math.max(fitPps, Math.min(240, parseFloat((pps * factor).toFixed(2))));
 
-  const zoomOut = useCallback(() => {
-    setPps((prev) => {
-      const next = Math.max(10, prev - 15);
-      prevZoomLevelRef.current = next;
-      return next;
-    });
-  }, []);
+    if (targetPps !== pps) {
+      prevZoomLevelRef.current = targetPps;
+      setPps(targetPps);
 
+      if (timelineEl) {
+        const clientWidth = timelineEl.clientWidth;
+        const playheadX = currentTime * targetPps;
+        timelineEl.scrollLeft = Math.max(0, playheadX - clientWidth / 2);
+      }
+    }
+  }, [pps, currentTime, getFitPps]);
+
+  const zoomIn = useCallback(() => zoomStep(1.2), [zoomStep]);
+  const zoomOut = useCallback(() => zoomStep(0.833), [zoomStep]);
   const zoomReset = useCallback(() => {
-    prevZoomLevelRef.current = 60;
-    setPps(60);
-  }, []);
+    const fitPps = getFitPps();
+    const target = Math.max(fitPps, 60);
+    prevZoomLevelRef.current = target;
+    setPps(target);
+  }, [getFitPps]);
 
   // Zoom keyboard shortcuts (+ / - / 0 / \) with capture: true
   useEffect(() => {
@@ -357,7 +378,7 @@ export const StudioTimeline: React.FC<StudioTimelineProps> = React.memo(({
     }));
   }, []);
 
-  // Non-passive native wheel listener to zoom timeline and 100% stop browser page zoom
+  // Non-passive native wheel listener: buttery-smooth continuous zoom anchored to mouse cursor
   useEffect(() => {
     const el = timelineContainerRef.current;
     if (!el) return;
@@ -367,10 +388,31 @@ export const StudioTimeline: React.FC<StudioTimelineProps> = React.memo(({
       if (e.ctrlKey || e.metaKey || e.altKey) {
         e.preventDefault();
         e.stopPropagation();
-        if (e.deltaY < 0) {
-          zoomIn();
-        } else {
-          zoomOut();
+
+        const timelineEl = timelineRef.current;
+        if (!timelineEl) return;
+
+        const rect = timelineEl.getBoundingClientRect();
+        const cursorX = e.clientX - rect.left;
+        const currentScrollLeft = timelineEl.scrollLeft;
+
+        // The exact timecode under the user's cursor
+        const timeAtCursor = (cursorX + currentScrollLeft) / pps;
+
+        // Smooth continuous exponential scale
+        const zoomDelta = -e.deltaY * 0.002;
+        const zoomFactor = Math.exp(Math.max(-0.25, Math.min(0.25, zoomDelta)));
+        const fitPps = getFitPps();
+        // Clamped between fitPps (so timeline NEVER shrinks smaller than window) and 240px/s
+        const targetPps = Math.max(fitPps, Math.min(240, parseFloat((pps * zoomFactor).toFixed(2))));
+
+        if (targetPps !== pps) {
+          prevZoomLevelRef.current = targetPps;
+          setPps(targetPps);
+
+          // Anchor the timecode directly under the cursor so it doesn't drift!
+          const newScrollLeft = Math.max(0, timeAtCursor * targetPps - cursorX);
+          timelineEl.scrollLeft = newScrollLeft;
         }
       }
     };
@@ -380,7 +422,7 @@ export const StudioTimeline: React.FC<StudioTimelineProps> = React.memo(({
     return () => {
       el.removeEventListener('wheel', handleNativeWheel);
     };
-  }, [zoomIn, zoomOut]);
+  }, [pps, getFitPps]);
 
   return (
     <div
@@ -604,9 +646,9 @@ export const StudioTimeline: React.FC<StudioTimelineProps> = React.memo(({
                   style={{ left: `${duration * pps}px` }}
                   className="absolute top-0 bottom-0 flex items-center z-10 pointer-events-none"
                 >
-                  <div className="absolute top-0.5 -translate-x-1/2 px-1.5 py-0.5 rounded bg-indigo-600 text-[8.5px] font-mono font-bold text-white shadow-md flex items-center gap-1 border border-indigo-400/50 select-none">
+                  <div className="absolute top-0.5 -translate-x-full -ml-1 px-1.5 py-0.5 rounded bg-amber-500 text-[8.5px] font-mono font-black text-slate-950 shadow-md flex items-center gap-1 border border-amber-400 select-none">
                     <span>END</span>
-                    <span className="text-indigo-200">{formatTimeCode(duration)}</span>
+                    <span className="text-slate-900">{formatTimeCode(duration)}</span>
                   </div>
                 </div>
               )}
@@ -616,7 +658,7 @@ export const StudioTimeline: React.FC<StudioTimelineProps> = React.memo(({
             {duration > 0 && (
               <div
                 style={{ left: `${duration * pps}px` }}
-                className="absolute top-0 bottom-0 w-0.5 bg-indigo-500/80 z-20 pointer-events-none shadow-md shadow-indigo-500/50"
+                className="absolute top-0 bottom-0 w-0.5 bg-amber-400 z-20 pointer-events-none shadow-md shadow-amber-400/50"
               />
             )}
 
