@@ -1,6 +1,7 @@
-import React, { useState, useRef, useEffect, useMemo } from 'react';
+import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import { Volume2, VolumeX, Trash2, ZoomIn, ZoomOut, Move, Sliders } from 'lucide-react';
 import { StudioTrack, StudioClip } from './types';
+import { ClipWaveform } from './ClipWaveform';
 
 interface StudioTimelineProps {
   tracks: StudioTrack[];
@@ -8,6 +9,8 @@ interface StudioTimelineProps {
   currentTime: number;
   duration: number;
   selectedTrackId: number;
+  videoRef?: React.RefObject<HTMLVideoElement | null>;
+  isPlaying?: boolean;
   onSelectTrack: (trackId: number) => void;
   onSeek: (time: number) => void;
   onUpdateClip: (clipId: string, updates: Partial<StudioClip>) => void;
@@ -23,6 +26,8 @@ export const StudioTimeline: React.FC<StudioTimelineProps> = React.memo(({
   currentTime,
   duration,
   selectedTrackId,
+  videoRef,
+  isPlaying = false,
   onSelectTrack,
   onSeek,
   onUpdateClip,
@@ -35,7 +40,9 @@ export const StudioTimeline: React.FC<StudioTimelineProps> = React.memo(({
   const [draggingClipId, setDraggingClipId] = useState<string | null>(null);
   
   const timelineRef = useRef<HTMLDivElement | null>(null);
+  const playheadRef = useRef<HTMLDivElement | null>(null);
   const dragStartRef = useRef<{ startX: number; initialTime: number }>({ startX: 0, initialTime: 0 });
+  const isDraggingScrubberRef = useRef(false);
 
   const timelineDuration = Math.max(duration || 10, 15);
   // Add 260px right margin so the rightmost timecode and clips have ample room and are never cut off
@@ -47,6 +54,52 @@ export const StudioTimeline: React.FC<StudioTimelineProps> = React.memo(({
     const numTicks = Math.ceil(timelineDuration / tickInterval);
     return Array.from({ length: numTicks + 1 }, (_, i) => i * tickInterval);
   }, [timelineDuration, pps]);
+
+  // Zoom helpers
+  const zoomIn = useCallback(() => setPps((prev) => Math.min(240, prev + 15)), []);
+  const zoomOut = useCallback(() => setPps((prev) => Math.max(20, prev - 15)), []);
+  const zoomReset = useCallback(() => setPps(60), []);
+
+  // Zoom keyboard shortcuts (+ / - / 0)
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const activeTag = (document.activeElement?.tagName || '').toLowerCase();
+      if (activeTag === 'input' || activeTag === 'textarea') return;
+
+      if (e.key === '=' || e.key === '+') {
+        e.preventDefault();
+        zoomIn();
+      } else if (e.key === '-' || e.key === '_') {
+        e.preventDefault();
+        zoomOut();
+      } else if (e.key === '0' && (e.ctrlKey || e.metaKey)) {
+        e.preventDefault();
+        zoomReset();
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [zoomIn, zoomOut, zoomReset]);
+
+  // 60fps / 120fps GPU-accelerated playhead movement via requestAnimationFrame
+  useEffect(() => {
+    let animId: number;
+    const updateLoop = () => {
+      if (playheadRef.current) {
+        let time = currentTime;
+        if (isPlaying && videoRef?.current && !isDraggingScrubberRef.current) {
+          time = videoRef.current.currentTime;
+        }
+        const x = time * pps;
+        playheadRef.current.style.transform = `translateX(${x}px)`;
+      }
+      animId = requestAnimationFrame(updateLoop);
+    };
+
+    animId = requestAnimationFrame(updateLoop);
+    return () => cancelAnimationFrame(animId);
+  }, [pps, isPlaying, videoRef, currentTime]);
 
   // Auto-scroll timeline to keep playhead in view during playback or scrubbing
   useEffect(() => {
@@ -66,6 +119,7 @@ export const StudioTimeline: React.FC<StudioTimelineProps> = React.memo(({
   const handleScrubStart = (e: React.MouseEvent) => {
     e.preventDefault();
     if (!timelineRef.current) return;
+    isDraggingScrubberRef.current = true;
 
     const calcTime = (clientX: number) => {
       const rect = timelineRef.current!.getBoundingClientRect();
@@ -84,6 +138,7 @@ export const StudioTimeline: React.FC<StudioTimelineProps> = React.memo(({
     };
 
     const handleMouseUp = () => {
+      isDraggingScrubberRef.current = false;
       window.removeEventListener('mousemove', handleMouseMove);
       window.removeEventListener('mouseup', handleMouseUp);
     };
@@ -118,8 +173,23 @@ export const StudioTimeline: React.FC<StudioTimelineProps> = React.memo(({
     window.addEventListener('mouseup', handleMouseUp);
   };
 
+  // Ctrl/Cmd + Wheel zoom on the timeline canvas
+  const handleWheel = (e: React.WheelEvent) => {
+    if (e.ctrlKey || e.metaKey || e.altKey) {
+      e.preventDefault();
+      if (e.deltaY < 0) {
+        zoomIn();
+      } else {
+        zoomOut();
+      }
+    }
+  };
+
   return (
-    <div className="flex flex-col h-full bg-slate-950/70 select-none overflow-hidden border-t border-slate-800">
+    <div
+      onWheel={handleWheel}
+      className="flex flex-col h-full bg-slate-950/70 select-none overflow-hidden border-t border-slate-800"
+    >
       {/* Timeline Toolbar */}
       <div className="flex items-center justify-between px-3 py-1.5 bg-slate-900 border-b border-slate-800 shrink-0">
         <div className="flex items-center gap-2">
@@ -131,24 +201,30 @@ export const StudioTimeline: React.FC<StudioTimelineProps> = React.memo(({
           </span>
         </div>
 
-        {/* Zoom Controls */}
+        {/* Zoom Controls with Shortcut Badges */}
         <div className="flex items-center gap-1.5">
           <button
-            onClick={() => setPps((prev) => Math.max(25, prev - 15))}
-            className="p-1 rounded text-slate-400 hover:text-white hover:bg-slate-800 transition cursor-pointer"
-            title="Zoom Out"
+            onClick={zoomOut}
+            className="flex items-center gap-1 px-1.5 py-1 rounded text-slate-400 hover:text-white hover:bg-slate-800 transition cursor-pointer"
+            title="Zoom Out [-]"
           >
             <ZoomOut className="w-3.5 h-3.5" />
+            <kbd className="text-[9px] font-mono px-1 rounded bg-slate-800 text-slate-400 border border-slate-700">-</kbd>
           </button>
-          <span className="text-[10px] text-slate-400 font-mono w-10 text-center">
-            {pps}px/s
-          </span>
           <button
-            onClick={() => setPps((prev) => Math.min(180, prev + 15))}
-            className="p-1 rounded text-slate-400 hover:text-white hover:bg-slate-800 transition cursor-pointer"
-            title="Zoom In"
+            onClick={zoomReset}
+            className="text-[10px] text-slate-400 hover:text-white font-mono px-1.5 py-0.5 rounded hover:bg-slate-800 transition cursor-pointer"
+            title="Reset Zoom to 60px/s [Ctrl+0]"
+          >
+            {pps}px/s
+          </button>
+          <button
+            onClick={zoomIn}
+            className="flex items-center gap-1 px-1.5 py-1 rounded text-slate-400 hover:text-white hover:bg-slate-800 transition cursor-pointer"
+            title="Zoom In [+]"
           >
             <ZoomIn className="w-3.5 h-3.5" />
+            <kbd className="text-[9px] font-mono px-1 rounded bg-slate-800 text-slate-400 border border-slate-700">+</kbd>
           </button>
         </div>
       </div>
@@ -280,10 +356,11 @@ export const StudioTimeline: React.FC<StudioTimelineProps> = React.memo(({
               })}
             </div>
 
-            {/* Red Playhead Line & Draggable Diamond Scrubber */}
+            {/* Red Playhead Line & Draggable Scrubber with GPU transform */}
             <div
-              style={{ left: `${currentTime * pps}px` }}
-              className="absolute top-0 bottom-0 w-0.5 bg-rose-500 z-30 shadow-lg shadow-rose-500/50 pointer-events-none"
+              ref={playheadRef}
+              style={{ transform: `translateX(${currentTime * pps}px)` }}
+              className="absolute top-0 bottom-0 left-0 w-0.5 bg-rose-500 z-30 shadow-lg shadow-rose-500/50 pointer-events-none will-change-transform"
             >
               {/* Grab Handle directly on ruler */}
               <div
@@ -296,7 +373,7 @@ export const StudioTimeline: React.FC<StudioTimelineProps> = React.memo(({
             </div>
 
             {/* 4 Track Lanes */}
-            <div className="flex-1 flex flex-col relative">
+            <div className="flex-1 flex flex-col relative pb-4">
               {tracks.map((track) => {
                 const trackClips = clips.filter((c) => c.trackId === track.id);
                 const isSelected = selectedTrackId === track.id;
@@ -312,10 +389,10 @@ export const StudioTimeline: React.FC<StudioTimelineProps> = React.memo(({
                       isSelected ? 'bg-slate-900/40' : 'bg-transparent'
                     }`}
                   >
-                    {/* Render Clips */}
+                    {/* Render Clips with Real Audio Waveform Background */}
                     {trackClips.map((clip) => {
                       const clipLeft = clip.startTime * pps;
-                      const clipWidth = Math.max(28, clip.duration * pps);
+                      const clipWidth = Math.max(30, clip.duration * pps);
                       const isDragging = draggingClipId === clip.id;
 
                       return (
@@ -330,10 +407,13 @@ export const StudioTimeline: React.FC<StudioTimelineProps> = React.memo(({
                             track.colorClip
                           } ${isDragging ? 'opacity-80 scale-[0.99] ring-2 ring-white' : ''}`}
                         >
+                          {/* Audio Waveform Background */}
+                          <ClipWaveform soundId={clip.soundId} />
+
                           {/* Clip Header: Title + Delete */}
-                          <div className="flex items-center justify-between gap-1">
+                          <div className="flex items-center justify-between gap-1 z-10">
                             <span
-                              className="text-[10px] font-bold truncate leading-tight drop-shadow-sm"
+                              className="text-[10px] font-bold truncate leading-tight drop-shadow-[0_1px_2px_rgba(0,0,0,0.8)] text-white"
                               title={clip.name}
                             >
                               {clip.name}
@@ -343,7 +423,7 @@ export const StudioTimeline: React.FC<StudioTimelineProps> = React.memo(({
                                 e.stopPropagation();
                                 onDeleteClip(clip.id);
                               }}
-                              className="p-0.5 rounded hover:bg-black/40 text-white/80 hover:text-white transition cursor-pointer"
+                              className="p-0.5 rounded hover:bg-black/50 text-white/80 hover:text-white transition cursor-pointer"
                               title="Delete Clip"
                             >
                               <Trash2 className="w-2.5 h-2.5" />
@@ -351,7 +431,7 @@ export const StudioTimeline: React.FC<StudioTimelineProps> = React.memo(({
                           </div>
 
                           {/* Clip Footer: Start Time & Duration */}
-                          <div className="flex items-center justify-between text-[8px] font-mono opacity-90">
+                          <div className="flex items-center justify-between text-[8px] font-mono opacity-90 z-10 drop-shadow-[0_1px_1px_rgba(0,0,0,0.8)] text-white/90">
                             <span>{clip.startTime.toFixed(2)}s</span>
                             <span>{clip.duration.toFixed(1)}s</span>
                           </div>

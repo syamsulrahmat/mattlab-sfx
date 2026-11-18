@@ -4,6 +4,7 @@ import {
   Play,
   Pause,
   RotateCcw,
+  RotateCw,
   Volume2,
   VolumeX,
   Upload,
@@ -306,6 +307,9 @@ export const StudioPage: React.FC<StudioPageProps> = ({ onBackToLibrary }) => {
       } else if (e.key === 'Home') {
         e.preventDefault();
         handleSeek(0);
+      } else if (e.key === 'End') {
+        e.preventDefault();
+        handleSeek(duration);
       }
     };
 
@@ -687,6 +691,14 @@ export const StudioPage: React.FC<StudioPageProps> = ({ onBackToLibrary }) => {
                 </button>
 
                 <button
+                  onClick={() => handleSeek(duration)}
+                  className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition cursor-pointer"
+                  title="Jump to End [End]"
+                >
+                  <RotateCw className="w-3.5 h-3.5" />
+                </button>
+
+                <button
                   onClick={() => handleStepFrame(-1)}
                   className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition cursor-pointer font-mono text-[10px]"
                   title="Step 1 Frame Back [←]"
@@ -791,6 +803,8 @@ export const StudioPage: React.FC<StudioPageProps> = ({ onBackToLibrary }) => {
               currentTime={currentTime}
               duration={duration}
               selectedTrackId={selectedTrackId}
+              videoRef={videoRef}
+              isPlaying={isPlaying}
               onSelectTrack={setSelectedTrackId}
               onSeek={handleSeek}
               onUpdateClip={handleUpdateClip}
