@@ -126,10 +126,25 @@ export const StudioPage: React.FC<StudioPageProps> = ({ onBackToLibrary }) => {
     updateUndoRedoState();
   }, [updateUndoRedoState]);
 
-  const handleCommitClipMove = useCallback((clipId: string, initialStartTime: number, finalStartTime: number) => {
-    if (initialStartTime === finalStartTime) return;
+  const handleCommitClipMove = useCallback((
+    clipId: string,
+    initialStartTime: number,
+    finalStartTime: number,
+    initialTrackId?: number,
+    finalTrackId?: number
+  ) => {
+    const trackChanged = initialTrackId !== undefined && finalTrackId !== undefined && initialTrackId !== finalTrackId;
+    const timeChanged = initialStartTime !== finalStartTime;
+    if (!timeChanged && !trackChanged) return;
+
     const beforeClips = clipsRef.current.map((c) =>
-      c.id === clipId ? { ...c, startTime: initialStartTime } : c
+      c.id === clipId
+        ? {
+            ...c,
+            startTime: initialStartTime,
+            trackId: initialTrackId !== undefined ? initialTrackId : c.trackId,
+          }
+        : c
     );
     pastRef.current.push(beforeClips);
     if (pastRef.current.length > 50) {
@@ -138,6 +153,20 @@ export const StudioPage: React.FC<StudioPageProps> = ({ onBackToLibrary }) => {
     futureRef.current = [];
     updateUndoRedoState();
   }, [updateUndoRedoState]);
+
+  const handleMoveClipToTrack = useCallback((clipId: string, targetTrackId: number) => {
+    const clip = clipsRef.current.find((c) => c.id === clipId);
+    if (!clip || clip.trackId === targetTrackId) return;
+
+    pushClipsWithHistory(
+      clipsRef.current.map((c) => (c.id === clipId ? { ...c, trackId: targetTrackId } : c))
+    );
+    setStatusMessage({
+      text: `Moved "${clip.name}" to [${tracks[targetTrackId]?.tag || `Track ${targetTrackId + 1}`}]`,
+      type: 'info',
+    });
+    setTimeout(() => setStatusMessage(null), 2000);
+  }, [tracks, pushClipsWithHistory]);
 
   const handleUndo = useCallback(() => {
     if (pastRef.current.length === 0) return;
@@ -327,19 +356,35 @@ export const StudioPage: React.FC<StudioPageProps> = ({ onBackToLibrary }) => {
     setCurrentTime(newTime);
   };
 
-  // Spot Sound onto active track at current playhead
+  // Spot Sound onto active track (with automatic collision avoidance)
   const handleSpotSound = (sound: { id: number; filename: string; display_name: string; category?: string; duration: number }) => {
     const spotTime = videoRef.current ? videoRef.current.currentTime : currentTime;
+    const soundDuration = sound.duration && sound.duration > 0 ? sound.duration : 1.5;
+    const parsedSpotTime = parseFloat(spotTime.toFixed(3));
+
+    // Collision check: if selected track already has a clip covering parsedSpotTime, auto-select the first free track
+    let targetTrackId = selectedTrackId;
+    const isOccupied = (tId: number) =>
+      clipsRef.current.some(
+        (c) => c.trackId === tId && parsedSpotTime < c.startTime + c.duration && parsedSpotTime + soundDuration > c.startTime
+      );
+
+    if (isOccupied(selectedTrackId)) {
+      const freeTrack = tracks.find((t) => !isOccupied(t.id));
+      if (freeTrack) {
+        targetTrackId = freeTrack.id;
+      }
+    }
 
     const newClip: StudioClip = {
       id: `clip-${Date.now()}-${Math.random().toString(36).substr(2, 7)}`,
       soundId: sound.id,
       name: sound.display_name || sound.filename,
       filename: sound.filename,
-      startTime: parseFloat(spotTime.toFixed(3)),
-      duration: sound.duration && sound.duration > 0 ? sound.duration : 1.5,
+      startTime: parsedSpotTime,
+      duration: soundDuration,
       volume: 1.0,
-      trackId: selectedTrackId,
+      trackId: targetTrackId,
       category: sound.category,
     };
 
@@ -348,17 +393,25 @@ export const StudioPage: React.FC<StudioPageProps> = ({ onBackToLibrary }) => {
     loadAudioBuffer(sound.id);
 
     setStatusMessage({
-      text: `Spotted "${newClip.name}" onto [${tracks[selectedTrackId].tag}] at ${spotTime.toFixed(2)}s`,
+      text: `Spotted "${newClip.name}" onto [${tracks[targetTrackId].tag}] at ${spotTime.toFixed(2)}s`,
       type: 'info',
     });
     setTimeout(() => setStatusMessage(null), 2500);
   };
 
-  // Keyboard shortcut listener for Space, Frame Stepping, Home, End, and Undo/Redo
+  // Keyboard shortcut listener for Space, Frame Stepping, Home, End, Undo/Redo, and Palette Toggle [P/B]
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       const activeTag = (document.activeElement?.tagName || '').toLowerCase();
       if (activeTag === 'input' || activeTag === 'textarea') return;
+
+      // Toggle Sound Palette drawer: [P] or [B] (without Ctrl/Alt/Meta)
+      if ((e.key === 'p' || e.key === 'P' || e.key === 'b' || e.key === 'B') && !e.ctrlKey && !e.metaKey && !e.altKey) {
+        e.preventDefault();
+        e.stopPropagation();
+        setPaletteOpen((prev) => !prev);
+        return;
+      }
 
       // Undo: Ctrl+Z / Cmd+Z (without Shift)
       if ((e.ctrlKey || e.metaKey) && (e.key === 'z' || e.key === 'Z') && !e.shiftKey) {
@@ -643,10 +696,10 @@ export const StudioPage: React.FC<StudioPageProps> = ({ onBackToLibrary }) => {
                 ? 'bg-slate-800 hover:bg-slate-700 text-slate-200 border-slate-700'
                 : 'bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-300 border-indigo-500/40 shadow-sm'
             }`}
-            title={paletteOpen ? 'Hide Sound Palette' : 'Show Sound Palette'}
+            title={paletteOpen ? 'Hide Sound Palette [P]' : 'Show Sound Palette [P]'}
           >
             <Sparkles className="w-3.5 h-3.5 text-amber-400" />
-            <span className="hidden sm:inline">{paletteOpen ? 'Hide Palette' : 'Sound Palette'}</span>
+            <span className="hidden sm:inline">{paletteOpen ? 'Hide Palette [P]' : 'Sound Palette [P]'}</span>
           </button>
 
           <button
@@ -897,6 +950,7 @@ export const StudioPage: React.FC<StudioPageProps> = ({ onBackToLibrary }) => {
               onSeek={handleSeek}
               onUpdateClip={handleUpdateClip}
               onCommitClipMove={handleCommitClipMove}
+              onMoveClipToTrack={handleMoveClipToTrack}
               onDeleteClip={handleDeleteClip}
               onToggleMute={handleToggleMute}
               onToggleSolo={handleToggleSolo}
@@ -915,7 +969,7 @@ export const StudioPage: React.FC<StudioPageProps> = ({ onBackToLibrary }) => {
           <button
             onClick={() => setPaletteOpen(!paletteOpen)}
             className="absolute -left-3.5 top-1/2 -translate-y-1/2 z-30 w-4 h-14 bg-slate-800 hover:bg-slate-700 border border-slate-700/80 rounded-l-md flex items-center justify-center text-slate-400 hover:text-white shadow-xl transition cursor-pointer"
-            title={paletteOpen ? 'Collapse Sound Palette' : 'Expand Sound Palette'}
+            title={paletteOpen ? 'Collapse Sound Palette [P]' : 'Expand Sound Palette [P]'}
           >
             {paletteOpen ? <ChevronRight className="w-3.5 h-3.5" /> : <ChevronLeft className="w-3.5 h-3.5" />}
           </button>
