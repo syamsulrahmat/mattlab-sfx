@@ -1,5 +1,25 @@
 import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
-import { Volume2, VolumeX, Trash2, ZoomIn, ZoomOut, Move, Sliders, Undo2, Redo2, Layers, AlertTriangle, Maximize2, Edit2 } from 'lucide-react';
+import {
+  Volume2,
+  VolumeX,
+  Trash2,
+  ZoomIn,
+  ZoomOut,
+  Move,
+  Sliders,
+  Undo2,
+  Redo2,
+  Layers,
+  AlertTriangle,
+  Maximize2,
+  Edit2,
+  MousePointer,
+  Scissors,
+  Split,
+  Magnet,
+  Copy,
+  RotateCcw
+} from 'lucide-react';
 import { StudioTrack, StudioClip } from './types';
 import { ClipWaveform } from './ClipWaveform';
 
@@ -25,6 +45,14 @@ interface StudioTimelineProps {
     initialTrackId?: number,
     finalTrackId?: number
   ) => void;
+  onCommitClipTrim?: (
+    clipId: string,
+    before: { startTime: number; duration: number; trimIn?: number },
+    after: { startTime: number; duration: number; trimIn?: number }
+  ) => void;
+  onSplitClip?: (clipId: string, splitTime: number) => void;
+  onDuplicateClip?: (clipId: string) => void;
+  onResetClipTrim?: (clipId: string) => void;
   onMoveClipToTrack?: (clipId: string, targetTrackId: number) => void;
   onRenameTrack?: (trackId: number, newName: string) => void;
   onDeleteClip: (clipId: string) => void;
@@ -49,6 +77,10 @@ export const StudioTimeline: React.FC<StudioTimelineProps> = React.memo(({
   onSeek,
   onUpdateClip,
   onCommitClipMove,
+  onCommitClipTrim,
+  onSplitClip,
+  onDuplicateClip,
+  onResetClipTrim,
   onMoveClipToTrack,
   onRenameTrack,
   onDeleteClip,
@@ -61,6 +93,13 @@ export const StudioTimeline: React.FC<StudioTimelineProps> = React.memo(({
   const [layerMenuClipId, setLayerMenuClipId] = useState<string | null>(null);
   const [editingTrackId, setEditingTrackId] = useState<number | null>(null);
   const [editTrackName, setEditTrackName] = useState<string>('');
+
+  // Editing Tools & Clip Selection States
+  const [activeTool, setActiveTool] = useState<'select' | 'razor'>('select');
+  const [selectedClipId, setSelectedClipId] = useState<string | null>(null);
+  const [snappingEnabled, setSnappingEnabled] = useState<boolean>(true);
+  const [hoverSplitInfo, setHoverSplitInfo] = useState<{ clipId: string; time: number; x: number } | null>(null);
+  const isTrimmingRef = useRef(false);
 
   const handleStartRename = (track: StudioTrack, e: React.MouseEvent) => {
     e.stopPropagation();
@@ -212,11 +251,96 @@ export const StudioTimeline: React.FC<StudioTimelineProps> = React.memo(({
     setPps(target);
   }, [getFitPps]);
 
-  // Zoom keyboard shortcuts (+ / - / 0 / \) with capture: true
+  // Split clip at playhead
+  const handleSplitAtPlayhead = useCallback(() => {
+    let target = clips.find(
+      (c) =>
+        c.id === selectedClipId &&
+        currentTime > c.startTime + 0.05 &&
+        currentTime < c.startTime + c.duration - 0.05
+    );
+    if (!target) {
+      target = clips.find(
+        (c) =>
+          c.trackId === selectedTrackId &&
+          currentTime > c.startTime + 0.05 &&
+          currentTime < c.startTime + c.duration - 0.05
+      );
+    }
+    if (!target) {
+      target = clips.find(
+        (c) =>
+          currentTime > c.startTime + 0.05 &&
+          currentTime < c.startTime + c.duration - 0.05
+      );
+    }
+
+    if (target && onSplitClip) {
+      onSplitClip(target.id, currentTime);
+    }
+  }, [clips, selectedClipId, selectedTrackId, currentTime, onSplitClip]);
+
+  // Keyboard shortcuts (+ / - / 0 / \, V, C, N, Ctrl+K, Ctrl+D, Delete) with capture: true
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       const activeTag = (document.activeElement?.tagName || '').toLowerCase();
       if (activeTag === 'input' || activeTag === 'textarea') return;
+
+      // Tool selection shortcuts
+      if ((e.key === 'v' || e.key === 'V') && !e.ctrlKey && !e.metaKey && !e.altKey) {
+        e.preventDefault();
+        e.stopPropagation();
+        setActiveTool('select');
+        return;
+      }
+      if ((e.key === 'c' || e.key === 'C') && !e.ctrlKey && !e.metaKey && !e.altKey) {
+        e.preventDefault();
+        e.stopPropagation();
+        setActiveTool('razor');
+        return;
+      }
+      // Toggle magnetic snapping: [N]
+      if ((e.key === 'n' || e.key === 'N') && !e.ctrlKey && !e.metaKey && !e.altKey) {
+        e.preventDefault();
+        e.stopPropagation();
+        setSnappingEnabled((prev) => !prev);
+        return;
+      }
+      // Split at playhead: Ctrl+K / Cmd+K
+      if ((e.ctrlKey || e.metaKey) && (e.key === 'k' || e.key === 'K')) {
+        e.preventDefault();
+        e.stopPropagation();
+        handleSplitAtPlayhead();
+        return;
+      }
+      // Duplicate clip: Ctrl+D / Cmd+D
+      if ((e.ctrlKey || e.metaKey) && (e.key === 'd' || e.key === 'D')) {
+        if (selectedClipId && onDuplicateClip) {
+          e.preventDefault();
+          e.stopPropagation();
+          onDuplicateClip(selectedClipId);
+          return;
+        }
+      }
+      // Delete selected clip: Delete or Backspace
+      if (e.key === 'Delete' || e.key === 'Backspace') {
+        if (selectedClipId && editingTrackId === null) {
+          e.preventDefault();
+          e.stopPropagation();
+          onDeleteClip(selectedClipId);
+          setSelectedClipId(null);
+          return;
+        }
+      }
+      // Escape: deselect or return to select tool
+      if (e.key === 'Escape') {
+        if (activeTool === 'razor') {
+          setActiveTool('select');
+        } else {
+          setSelectedClipId(null);
+        }
+        return;
+      }
 
       const isZoomIn = e.key === '=' || e.key === '+' || e.code === 'Equal' || e.code === 'NumpadAdd';
       const isZoomOut = e.key === '-' || e.key === '_' || e.code === 'Minus' || e.code === 'NumpadSubtract';
@@ -244,7 +368,18 @@ export const StudioTimeline: React.FC<StudioTimelineProps> = React.memo(({
 
     window.addEventListener('keydown', handleKeyDown, { capture: true });
     return () => window.removeEventListener('keydown', handleKeyDown, { capture: true });
-  }, [zoomIn, zoomOut, zoomReset, toggleZoomFit]);
+  }, [
+    zoomIn,
+    zoomOut,
+    zoomReset,
+    toggleZoomFit,
+    activeTool,
+    selectedClipId,
+    editingTrackId,
+    handleSplitAtPlayhead,
+    onDuplicateClip,
+    onDeleteClip,
+  ]);
 
   // 60fps / 120fps GPU-accelerated playhead movement via requestAnimationFrame
   useEffect(() => {
@@ -312,9 +447,149 @@ export const StudioTimeline: React.FC<StudioTimelineProps> = React.memo(({
     window.addEventListener('mouseup', handleMouseUp);
   };
 
+  // Trimming In-Point (Head) or Out-Point (Tail)
+  const handleTrimStart = (clip: StudioClip, type: 'in' | 'out', e: React.MouseEvent) => {
+    e.stopPropagation();
+    e.preventDefault();
+    isTrimmingRef.current = true;
+    setSelectedClipId(clip.id);
+    setLayerMenuClipId(null);
+
+    const initialStartTime = clip.startTime;
+    const initialDuration = clip.duration;
+    const initialTrimIn = clip.trimIn || 0;
+    const originalDur = clip.originalDuration || (initialTrimIn + initialDuration);
+    const startX = e.clientX;
+
+    let latestStartTime = initialStartTime;
+    let latestDuration = initialDuration;
+    let latestTrimIn = initialTrimIn;
+
+    // Collect snap points for magnetic alignment
+    const snapPoints: number[] = [0, currentTime];
+    if (duration > 0) snapPoints.push(duration);
+    clips.forEach((c) => {
+      if (c.id !== clip.id && c.trackId === clip.trackId) {
+        snapPoints.push(c.startTime);
+        snapPoints.push(c.startTime + c.duration);
+      }
+    });
+
+    const snapThresholdSeconds = 8 / pps;
+
+    const getSnappedTime = (time: number) => {
+      if (!snappingEnabled) return time;
+      for (const pt of snapPoints) {
+        if (Math.abs(time - pt) <= snapThresholdSeconds) {
+          return pt;
+        }
+      }
+      return time;
+    };
+
+    const handleMouseMove = (moveEvent: MouseEvent) => {
+      const deltaX = moveEvent.clientX - startX;
+      const deltaTime = deltaX / pps;
+
+      if (type === 'in') {
+        let rawNewStartTime = initialStartTime + deltaTime;
+        let snappedStartTime = getSnappedTime(rawNewStartTime);
+        let actualDelta = snappedStartTime - initialStartTime;
+
+        // TrimIn cannot go below 0 (cannot extend earlier than audio file start)
+        if (initialTrimIn + actualDelta < 0) {
+          actualDelta = -initialTrimIn;
+          snappedStartTime = initialStartTime + actualDelta;
+        }
+        // StartTime cannot go below 0s timeline
+        if (snappedStartTime < 0) {
+          snappedStartTime = 0;
+          actualDelta = -initialStartTime;
+        }
+        // Minimum duration must be at least 0.05s
+        if (initialDuration - actualDelta < 0.05) {
+          actualDelta = initialDuration - 0.05;
+          snappedStartTime = initialStartTime + actualDelta;
+        }
+
+        const newStartTime = parseFloat(snappedStartTime.toFixed(3));
+        const newDuration = parseFloat((initialDuration - actualDelta).toFixed(3));
+        const newTrimIn = parseFloat((initialTrimIn + actualDelta).toFixed(3));
+
+        latestStartTime = newStartTime;
+        latestDuration = newDuration;
+        latestTrimIn = newTrimIn;
+
+        onUpdateClip(clip.id, {
+          startTime: newStartTime,
+          duration: newDuration,
+          trimIn: newTrimIn,
+          originalDuration: originalDur,
+        });
+      } else {
+        let rawNewEndTime = initialStartTime + initialDuration + deltaTime;
+        let snappedEndTime = getSnappedTime(rawNewEndTime);
+        let newDuration = snappedEndTime - initialStartTime;
+
+        // Minimum duration 0.05s
+        newDuration = Math.max(0.05, newDuration);
+        // Cannot exceed original audio length
+        const maxDuration = Math.max(0.05, originalDur - initialTrimIn);
+        newDuration = Math.min(maxDuration, newDuration);
+
+        const finalDuration = parseFloat(newDuration.toFixed(3));
+        latestDuration = finalDuration;
+
+        onUpdateClip(clip.id, {
+          duration: finalDuration,
+          originalDuration: originalDur,
+        });
+      }
+    };
+
+    const handleMouseUp = () => {
+      isTrimmingRef.current = false;
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseup', handleMouseUp);
+
+      if (
+        onCommitClipTrim &&
+        (latestStartTime !== initialStartTime ||
+          latestDuration !== initialDuration ||
+          latestTrimIn !== initialTrimIn)
+      ) {
+        onCommitClipTrim(
+          clip.id,
+          { startTime: initialStartTime, duration: initialDuration, trimIn: initialTrimIn },
+          { startTime: latestStartTime, duration: latestDuration, trimIn: latestTrimIn }
+        );
+      }
+    };
+
+    window.addEventListener('mousemove', handleMouseMove);
+    window.addEventListener('mouseup', handleMouseUp);
+  };
+
   // Dragging clip along time axis and vertically across track layers
   const handleClipMouseDown = (clip: StudioClip, e: React.MouseEvent) => {
     e.stopPropagation();
+
+    // If Razor tool is active, clicking splits the clip!
+    if (activeTool === 'razor') {
+      if (!timelineRef.current) return;
+      const rect = timelineRef.current.getBoundingClientRect();
+      const clickX = e.clientX - rect.left + timelineRef.current.scrollLeft;
+      const clickTime = clickX / pps;
+
+      if (clickTime > clip.startTime + 0.05 && clickTime < clip.startTime + clip.duration - 0.05) {
+        if (onSplitClip) {
+          onSplitClip(clip.id, clickTime);
+        }
+      }
+      return;
+    }
+
+    setSelectedClipId(clip.id);
     setDraggingClipId(clip.id);
     setLayerMenuClipId(null);
     const initialStartTime = clip.startTime;
@@ -325,18 +600,42 @@ export const StudioTimeline: React.FC<StudioTimelineProps> = React.memo(({
     let latestStartTime = clip.startTime;
     let latestTrackId = clip.trackId;
 
+    const snapPoints: number[] = [0, currentTime];
+    if (duration > 0) snapPoints.push(duration);
+    clips.forEach((c) => {
+      if (c.id !== clip.id) {
+        snapPoints.push(c.startTime);
+        snapPoints.push(c.startTime + c.duration);
+      }
+    });
+    const snapThresholdSeconds = 8 / pps;
+
     const handleMouseMove = (moveEvent: MouseEvent) => {
       const deltaX = moveEvent.clientX - startX;
       const deltaTime = deltaX / pps;
-      const newStartTime = Math.max(0, parseFloat((initialStartTime + deltaTime).toFixed(3)));
+      let newStartTime = Math.max(0, initialStartTime + deltaTime);
 
+      if (snappingEnabled) {
+        for (const pt of snapPoints) {
+          if (Math.abs(newStartTime - pt) <= snapThresholdSeconds) {
+            newStartTime = pt;
+            break;
+          }
+          if (Math.abs((newStartTime + clip.duration) - pt) <= snapThresholdSeconds) {
+            newStartTime = Math.max(0, pt - clip.duration);
+            break;
+          }
+        }
+      }
+
+      const formattedStartTime = parseFloat(newStartTime.toFixed(3));
       const deltaY = moveEvent.clientY - startY;
       const trackDelta = Math.round(deltaY / 64); // 64px is h-16
       const newTrackId = Math.max(0, Math.min(tracks.length - 1, initialTrackId + trackDelta));
 
-      latestStartTime = newStartTime;
+      latestStartTime = formattedStartTime;
       latestTrackId = newTrackId;
-      onUpdateClip(clip.id, { startTime: newStartTime, trackId: newTrackId });
+      onUpdateClip(clip.id, { startTime: formattedStartTime, trackId: newTrackId });
     };
 
     const handleMouseUp = () => {
@@ -450,13 +749,68 @@ export const StudioTimeline: React.FC<StudioTimelineProps> = React.memo(({
     >
       {/* Timeline Toolbar */}
       <div className="flex items-center justify-between px-3 py-1.5 bg-slate-900 border-b border-slate-800 shrink-0">
-        <div className="flex items-center gap-2">
-          <span className="text-[11px] font-bold text-slate-300 uppercase tracking-wider">
-            Multi-Track Canvas
-          </span>
-          <span className="text-[10px] text-slate-500 font-mono">
-            4 Tracks • {clips.length} Clips
-          </span>
+        <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2">
+            <span className="text-[11px] font-bold text-slate-300 uppercase tracking-wider hidden sm:inline">
+              Multi-Track Canvas
+            </span>
+            <span className="text-[10px] text-slate-500 font-mono hidden md:inline">
+              4 Tracks • {clips.length} Clips
+            </span>
+          </div>
+
+          {/* Edit Tools: Selection [V], Razor [C], Split at Playhead [Ctrl+K], Snap [N] */}
+          <div className="flex items-center gap-0.5 bg-slate-950/80 p-0.5 rounded-lg border border-slate-800">
+            <button
+              onClick={() => setActiveTool('select')}
+              className={`flex items-center gap-1 px-2 py-1 rounded text-[10px] font-medium transition cursor-pointer ${
+                activeTool === 'select'
+                  ? 'bg-indigo-600 text-white font-bold shadow-sm'
+                  : 'text-slate-400 hover:text-white hover:bg-slate-800'
+              }`}
+              title="Selection Tool [V]"
+            >
+              <MousePointer className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">Select [V]</span>
+            </button>
+
+            <button
+              onClick={() => setActiveTool('razor')}
+              className={`flex items-center gap-1 px-2 py-1 rounded text-[10px] font-medium transition cursor-pointer ${
+                activeTool === 'razor'
+                  ? 'bg-rose-600 text-white font-bold shadow-sm'
+                  : 'text-slate-400 hover:text-white hover:bg-slate-800'
+              }`}
+              title="Razor / Split Tool [C]"
+            >
+              <Scissors className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">Razor [C]</span>
+            </button>
+
+            <div className="w-[1px] h-3.5 bg-slate-800 mx-0.5" />
+
+            <button
+              onClick={handleSplitAtPlayhead}
+              className="flex items-center gap-1 px-1.5 py-1 rounded text-[10px] font-medium text-slate-400 hover:text-white hover:bg-slate-800 transition cursor-pointer"
+              title="Split Clip at Playhead [Ctrl+K]"
+            >
+              <Split className="w-3.5 h-3.5 text-indigo-400" />
+              <span className="hidden md:inline">Split [Ctrl+K]</span>
+            </button>
+
+            <button
+              onClick={() => setSnappingEnabled((prev) => !prev)}
+              className={`flex items-center gap-1 px-1.5 py-1 rounded text-[10px] font-medium transition cursor-pointer ${
+                snappingEnabled
+                  ? 'text-amber-400 bg-amber-950/40 border border-amber-500/40'
+                  : 'text-slate-500 hover:text-slate-300'
+              }`}
+              title={snappingEnabled ? 'Magnetic Snapping Active [N]' : 'Magnetic Snapping Off [N]'}
+            >
+              <Magnet className="w-3.5 h-3.5" />
+              <span className="hidden lg:inline">{snappingEnabled ? 'Snap ON' : 'Snap OFF'}</span>
+            </button>
+          </div>
         </div>
 
         {/* Right side controls: Undo/Redo & Zoom Controls */}
@@ -758,6 +1112,7 @@ export const StudioTimeline: React.FC<StudioTimelineProps> = React.memo(({
                   <div
                     key={track.id}
                     onMouseDown={(e) => {
+                      setSelectedClipId(null);
                       setLayerMenuClipId(null);
                       onSelectTrack(track.id);
                       handleScrubStart(e);
@@ -771,6 +1126,7 @@ export const StudioTimeline: React.FC<StudioTimelineProps> = React.memo(({
                       const clipLeft = clip.startTime * pps;
                       const clipWidth = Math.max(30, clip.duration * pps);
                       const isDragging = draggingClipId === clip.id;
+                      const isClipSelected = selectedClipId === clip.id;
                       const isStaggered = hasOverlap;
                       const verticalClass = !isStaggered
                         ? 'top-1.5 bottom-1.5'
@@ -786,17 +1142,73 @@ export const StudioTimeline: React.FC<StudioTimelineProps> = React.memo(({
                             width: `${clipWidth}px`,
                           }}
                           onMouseDown={(e) => handleClipMouseDown(clip, e)}
-                          className={`absolute ${verticalClass} rounded-lg border shadow-md flex flex-col justify-between p-1 cursor-grab active:cursor-grabbing transition-all overflow-hidden group select-none ${
+                          onMouseMove={(e) => {
+                            if (activeTool === 'razor') {
+                              const rect = e.currentTarget.getBoundingClientRect();
+                              const localX = e.clientX - rect.left;
+                              const hoverTime = clip.startTime + localX / pps;
+                              setHoverSplitInfo({ clipId: clip.id, time: hoverTime, x: localX });
+                            }
+                          }}
+                          onMouseLeave={() => {
+                            if (activeTool === 'razor') {
+                              setHoverSplitInfo(null);
+                            }
+                          }}
+                          className={`absolute ${verticalClass} rounded-lg border shadow-md flex flex-col justify-between p-1 transition-all overflow-hidden group select-none ${
                             track.colorClip
                           } ${isDragging ? 'opacity-80 scale-[0.99] ring-2 ring-white z-40' : 'z-10'} ${
+                            isClipSelected ? 'ring-2 ring-white shadow-xl brightness-110' : ''
+                          } ${
                             hasOverlap ? 'ring-1 ring-amber-400/80 border-amber-500/70' : ''
+                          } ${
+                            activeTool === 'razor' ? 'cursor-crosshair' : 'cursor-grab active:cursor-grabbing'
                           }`}
                         >
                           {/* Audio Waveform Background */}
-                          <ClipWaveform soundId={clip.soundId} />
+                          <ClipWaveform
+                            soundId={clip.soundId}
+                            trimIn={clip.trimIn}
+                            duration={clip.duration}
+                            originalDuration={clip.originalDuration}
+                          />
 
-                          {/* Clip Header: Title + Overlap Alert + Layer Selector + Delete */}
-                          <div className="flex items-center justify-between gap-1 z-10 w-full">
+                          {/* Left Trim Handle (In-Point) */}
+                          <div
+                            onMouseDown={(e) => handleTrimStart(clip, 'in', e)}
+                            className={`absolute left-0 top-0 bottom-0 w-2.5 hover:w-3.5 z-30 transition-all cursor-col-resize flex items-center justify-start pl-0.5 group/trimIn ${
+                              activeTool === 'razor' ? 'pointer-events-none' : ''
+                            }`}
+                            title={`Trim In-Point (Offset: ${(clip.trimIn || 0).toFixed(2)}s)`}
+                          >
+                            <div className="w-1 h-5 bg-white/40 group-hover/trimIn:bg-white rounded-r-sm shadow-sm transition" />
+                          </div>
+
+                          {/* Right Trim Handle (Out-Point) */}
+                          <div
+                            onMouseDown={(e) => handleTrimStart(clip, 'out', e)}
+                            className={`absolute right-0 top-0 bottom-0 w-2.5 hover:w-3.5 z-30 transition-all cursor-col-resize flex items-center justify-end pr-0.5 group/trimOut ${
+                              activeTool === 'razor' ? 'pointer-events-none' : ''
+                            }`}
+                            title={`Trim Out-Point (Duration: ${clip.duration.toFixed(2)}s)`}
+                          >
+                            <div className="w-1 h-5 bg-white/40 group-hover/trimOut:bg-white rounded-l-sm shadow-sm transition" />
+                          </div>
+
+                          {/* Razor Cut Guideline (when hovering in Razor tool mode) */}
+                          {activeTool === 'razor' && hoverSplitInfo?.clipId === clip.id && (
+                            <div
+                              style={{ left: `${hoverSplitInfo.x}px` }}
+                              className="absolute top-0 bottom-0 w-0.5 bg-rose-400 z-50 pointer-events-none flex flex-col items-center"
+                            >
+                              <div className="bg-rose-600 text-[8px] font-mono px-1 py-0.2 rounded text-white shadow font-bold -translate-y-3.5 whitespace-nowrap">
+                                ✂ {hoverSplitInfo.time.toFixed(2)}s
+                              </div>
+                            </div>
+                          )}
+
+                          {/* Clip Header: Title + Overlap Alert + Layer Selector + Tools + Delete */}
+                          <div className="flex items-center justify-between gap-1 z-10 w-full pl-2 pr-2">
                             <div className="flex items-center gap-1 min-w-0">
                               <span
                                 className="text-[9px] sm:text-[10px] font-bold truncate leading-tight drop-shadow-[0_1px_2px_rgba(0,0,0,0.8)] text-white"
@@ -867,23 +1279,55 @@ export const StudioTimeline: React.FC<StudioTimelineProps> = React.memo(({
                                 )}
                               </div>
 
+                              {/* Reset Trimming Button (if trimmed) */}
+                              {((clip.trimIn || 0) > 0 || (clip.originalDuration && clip.duration < clip.originalDuration - 0.05)) && (
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    if (onResetClipTrim) onResetClipTrim(clip.id);
+                                  }}
+                                  className="p-0.5 rounded hover:bg-black/50 text-white/70 hover:text-white transition cursor-pointer"
+                                  title="Reset Trimming to Full Duration"
+                                >
+                                  <RotateCcw className="w-2.5 h-2.5" />
+                                </button>
+                              )}
+
+                              {/* Duplicate Clip Button */}
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  if (onDuplicateClip) onDuplicateClip(clip.id);
+                                }}
+                                className="p-0.5 rounded hover:bg-black/50 text-white/70 hover:text-white transition cursor-pointer"
+                                title="Duplicate Clip [Ctrl+D]"
+                              >
+                                <Copy className="w-2.5 h-2.5" />
+                              </button>
+
+                              {/* Delete Button */}
                               <button
                                 onClick={(e) => {
                                   e.stopPropagation();
                                   onDeleteClip(clip.id);
                                 }}
                                 className="p-0.5 rounded hover:bg-black/50 text-white/80 hover:text-white transition cursor-pointer"
-                                title="Delete Clip"
+                                title="Delete Clip [Delete]"
                               >
                                 <Trash2 className="w-2.5 h-2.5" />
                               </button>
                             </div>
                           </div>
 
-                          {/* Clip Footer: Start Time & Duration (shown when full height) */}
+                          {/* Clip Footer: Start Time, Trim Indicator & Duration (shown when full height) */}
                           {!isStaggered && (
-                            <div className="flex items-center justify-between text-[8px] font-mono opacity-90 z-10 drop-shadow-[0_1px_1px_rgba(0,0,0,0.8)] text-white/90">
+                            <div className="flex items-center justify-between text-[8px] font-mono opacity-90 z-10 drop-shadow-[0_1px_1px_rgba(0,0,0,0.8)] text-white/90 pl-2 pr-2">
                               <span>{clip.startTime.toFixed(2)}s</span>
+                              {(clip.trimIn || 0) > 0 && (
+                                <span className="text-[7.5px] text-amber-300 font-semibold" title={`Trimmed in by ${(clip.trimIn || 0).toFixed(2)}s`}>
+                                  +{(clip.trimIn || 0).toFixed(1)}s
+                                </span>
+                              )}
                               <span>{clip.duration.toFixed(1)}s</span>
                             </div>
                           )}

@@ -273,14 +273,20 @@ export const StudioPage: React.FC<StudioPageProps> = ({ onBackToLibrary }) => {
         activeSourcesRef.current.delete(uniqueKey);
       };
 
+      const trimIn = Math.max(0, clip.trimIn || 0);
+
       if (startPos <= clip.startTime) {
         // Clip starts in the future relative to playhead
         const delay = clip.startTime - startPos;
-        source.start(audioCtx.currentTime + delay, 0);
+        source.start(audioCtx.currentTime + delay, trimIn, clip.duration);
       } else {
         // Clip is currently in mid-playback
-        const offset = startPos - clip.startTime;
-        source.start(audioCtx.currentTime, offset);
+        const elapsed = startPos - clip.startTime;
+        const offset = trimIn + elapsed;
+        const remaining = clip.duration - elapsed;
+        if (remaining > 0 && offset < buffer.duration) {
+          source.start(audioCtx.currentTime, offset, Math.min(remaining, buffer.duration - offset));
+        }
       }
     });
   }, [clips, tracks, getAudioContext, loadAudioBuffer, stopAllAudioSources]);
@@ -421,6 +427,8 @@ export const StudioPage: React.FC<StudioPageProps> = ({ onBackToLibrary }) => {
       filename: sound.filename,
       startTime: parsedSpotTime,
       duration: soundDuration,
+      originalDuration: soundDuration,
+      trimIn: 0,
       volume: 1.0,
       trackId: targetTrackId,
       category: sound.category,
@@ -531,6 +539,93 @@ export const StudioPage: React.FC<StudioPageProps> = ({ onBackToLibrary }) => {
     pushClipsWithHistory(clipsRef.current.filter((c) => c.id !== clipId));
   };
 
+  const handleCommitClipTrim = useCallback((
+    clipId: string,
+    before: { startTime: number; duration: number; trimIn?: number },
+    after: { startTime: number; duration: number; trimIn?: number }
+  ) => {
+    if (
+      before.startTime !== after.startTime ||
+      before.duration !== after.duration ||
+      before.trimIn !== after.trimIn
+    ) {
+      const pastState = clipsRef.current.map((c) =>
+        c.id === clipId ? { ...c, ...before } : c
+      );
+      pastRef.current.push(pastState);
+      futureRef.current = [];
+      updateUndoRedoState();
+    }
+  }, [updateUndoRedoState]);
+
+  const handleSplitClip = useCallback((clipId: string, splitTime: number) => {
+    const clip = clipsRef.current.find((c) => c.id === clipId);
+    if (!clip) return;
+    if (splitTime <= clip.startTime + 0.05 || splitTime >= clip.startTime + clip.duration - 0.05) return;
+
+    const leftDuration = parseFloat((splitTime - clip.startTime).toFixed(3));
+    const rightDuration = parseFloat((clip.duration - leftDuration).toFixed(3));
+    const originalDuration = clip.originalDuration || (clip.trimIn || 0) + clip.duration;
+    const leftTrimIn = clip.trimIn || 0;
+    const rightTrimIn = parseFloat((leftTrimIn + leftDuration).toFixed(3));
+
+    const leftClip: StudioClip = {
+      ...clip,
+      duration: leftDuration,
+      originalDuration,
+    };
+
+    const rightClip: StudioClip = {
+      ...clip,
+      id: `clip-${Date.now()}-${Math.random().toString(36).substr(2, 7)}`,
+      startTime: parseFloat(splitTime.toFixed(3)),
+      duration: rightDuration,
+      trimIn: rightTrimIn,
+      originalDuration,
+    };
+
+    pushClipsWithHistory(
+      clipsRef.current.flatMap((c) => (c.id === clipId ? [leftClip, rightClip] : [c]))
+    );
+    setStatusMessage({
+      text: `Split "${clip.name}" at ${splitTime.toFixed(2)}s into 2 clips`,
+      type: 'info',
+    });
+    setTimeout(() => setStatusMessage(null), 2000);
+  }, [pushClipsWithHistory]);
+
+  const handleDuplicateClip = useCallback((clipId: string) => {
+    const clip = clipsRef.current.find((c) => c.id === clipId);
+    if (!clip) return;
+    const newClip: StudioClip = {
+      ...clip,
+      id: `clip-${Date.now()}-${Math.random().toString(36).substr(2, 7)}`,
+      startTime: parseFloat((clip.startTime + clip.duration).toFixed(3)),
+    };
+    pushClipsWithHistory([...clipsRef.current, newClip]);
+    setStatusMessage({
+      text: `Duplicated "${clip.name}"`,
+      type: 'info',
+    });
+    setTimeout(() => setStatusMessage(null), 2000);
+  }, [pushClipsWithHistory]);
+
+  const handleResetClipTrim = useCallback((clipId: string) => {
+    const clip = clipsRef.current.find((c) => c.id === clipId);
+    if (!clip) return;
+    const originalDur = clip.originalDuration || (clip.trimIn || 0) + clip.duration;
+    pushClipsWithHistory(
+      clipsRef.current.map((c) =>
+        c.id === clipId ? { ...c, trimIn: 0, duration: originalDur } : c
+      )
+    );
+    setStatusMessage({
+      text: `Reset trimming for "${clip.name}" (${originalDur.toFixed(2)}s)`,
+      type: 'info',
+    });
+    setTimeout(() => setStatusMessage(null), 2000);
+  }, [pushClipsWithHistory]);
+
   // Export 1: Master Audio WAV Mixdown (Client-Side via OfflineAudioContext)
   const renderMixdownBuffer = async (): Promise<AudioBuffer> => {
     const sampleRate = 48000;
@@ -559,7 +654,9 @@ export const StudioPage: React.FC<StudioPageProps> = ({ onBackToLibrary }) => {
 
       source.connect(gain);
       gain.connect(offlineCtx.destination);
-      source.start(clip.startTime);
+      const trimIn = Math.max(0, clip.trimIn || 0);
+      const playDuration = Math.min(clip.duration, Math.max(0, buffer.duration - trimIn));
+      source.start(clip.startTime, trimIn, playDuration);
     }
 
     return await offlineCtx.startRendering();
@@ -988,6 +1085,10 @@ export const StudioPage: React.FC<StudioPageProps> = ({ onBackToLibrary }) => {
               onSeek={handleSeek}
               onUpdateClip={handleUpdateClip}
               onCommitClipMove={handleCommitClipMove}
+              onCommitClipTrim={handleCommitClipTrim}
+              onSplitClip={handleSplitClip}
+              onDuplicateClip={handleDuplicateClip}
+              onResetClipTrim={handleResetClipTrim}
               onMoveClipToTrack={handleMoveClipToTrack}
               onRenameTrack={handleRenameTrack}
               onDeleteClip={handleDeleteClip}
