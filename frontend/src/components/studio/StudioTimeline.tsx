@@ -38,7 +38,8 @@ export const StudioTimeline: React.FC<StudioTimelineProps> = React.memo(({
   const dragStartRef = useRef<{ startX: number; initialTime: number }>({ startX: 0, initialTime: 0 });
 
   const timelineDuration = Math.max(duration || 10, 15);
-  const totalWidth = Math.max(800, timelineDuration * pps + 100);
+  // Add 260px right margin so the rightmost timecode and clips have ample room and are never cut off
+  const totalWidth = Math.max(800, timelineDuration * pps + 260);
 
   // Time ruler ticks (memoized to eliminate frame garbage collection churn)
   const ticks = useMemo(() => {
@@ -46,6 +47,20 @@ export const StudioTimeline: React.FC<StudioTimelineProps> = React.memo(({
     const numTicks = Math.ceil(timelineDuration / tickInterval);
     return Array.from({ length: numTicks + 1 }, (_, i) => i * tickInterval);
   }, [timelineDuration, pps]);
+
+  // Auto-scroll timeline to keep playhead in view during playback or scrubbing
+  useEffect(() => {
+    if (!timelineRef.current) return;
+    const playheadX = currentTime * pps;
+    const scrollLeft = timelineRef.current.scrollLeft;
+    const clientWidth = timelineRef.current.clientWidth;
+
+    if (playheadX > scrollLeft + clientWidth - 80) {
+      timelineRef.current.scrollLeft = playheadX - 120;
+    } else if (playheadX < scrollLeft) {
+      timelineRef.current.scrollLeft = Math.max(0, playheadX - 40);
+    }
+  }, [currentTime, pps]);
 
   // Real-time Scrubbing Drag (both clicking & dragging across ruler or playhead)
   const handleScrubStart = (e: React.MouseEvent) => {

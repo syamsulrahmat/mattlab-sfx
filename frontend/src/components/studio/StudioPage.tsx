@@ -43,6 +43,7 @@ export const StudioPage: React.FC<StudioPageProps> = ({ onBackToLibrary }) => {
   const [tracks, setTracks] = useState<StudioTrack[]>(DEFAULT_TRACKS);
   const [clips, setClips] = useState<StudioClip[]>([]);
   const [selectedTrackId, setSelectedTrackId] = useState<number>(0);
+  const [paletteOpen, setPaletteOpen] = useState(true);
 
   // Exporting state
   const [isExportingWav, setIsExportingWav] = useState(false);
@@ -546,6 +547,20 @@ export const StudioPage: React.FC<StudioPageProps> = ({ onBackToLibrary }) => {
             </button>
           )}
 
+          {/* Toggle Sound Palette Button */}
+          <button
+            onClick={() => setPaletteOpen(!paletteOpen)}
+            className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold border transition cursor-pointer ${
+              paletteOpen
+                ? 'bg-slate-800 hover:bg-slate-700 text-slate-200 border-slate-700'
+                : 'bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-300 border-indigo-500/40 shadow-sm'
+            }`}
+            title={paletteOpen ? 'Hide Sound Palette' : 'Show Sound Palette'}
+          >
+            <Sparkles className="w-3.5 h-3.5 text-amber-400" />
+            <span className="hidden sm:inline">{paletteOpen ? 'Hide Palette' : 'Sound Palette'}</span>
+          </button>
+
           <button
             onClick={handleExportWav}
             disabled={isExportingWav || clips.length === 0}
@@ -787,12 +802,27 @@ export const StudioPage: React.FC<StudioPageProps> = ({ onBackToLibrary }) => {
           </div>
         </div>
 
-        {/* Right Side: Sound Palette Dock (25-30% width) */}
-        <div className="w-80 md:w-96 shrink-0 h-full">
-          <StudioPalette
-            onSpotSound={handleSpotSound}
-            selectedTrackTag={tracks[selectedTrackId]?.tag || 'T1'}
-          />
+        {/* Right Side: Collapsible Sound Palette Dock */}
+        <div
+          className={`h-full flex shrink-0 transition-all duration-300 ease-in-out relative border-l border-slate-800 ${
+            paletteOpen ? 'w-80 md:w-96' : 'w-0 border-l-0'
+          }`}
+        >
+          {/* Tactile Collapse / Expand Handle Tab */}
+          <button
+            onClick={() => setPaletteOpen(!paletteOpen)}
+            className="absolute -left-3.5 top-1/2 -translate-y-1/2 z-30 w-4 h-14 bg-slate-800 hover:bg-slate-700 border border-slate-700/80 rounded-l-md flex items-center justify-center text-slate-400 hover:text-white shadow-xl transition cursor-pointer"
+            title={paletteOpen ? 'Collapse Sound Palette' : 'Expand Sound Palette'}
+          >
+            {paletteOpen ? <ChevronRight className="w-3.5 h-3.5" /> : <ChevronLeft className="w-3.5 h-3.5" />}
+          </button>
+
+          <div className={`w-80 md:w-96 h-full overflow-hidden ${paletteOpen ? 'block' : 'hidden'}`}>
+            <StudioPalette
+              onSpotSound={handleSpotSound}
+              selectedTrackTag={tracks[selectedTrackId]?.tag || 'T1'}
+            />
+          </div>
         </div>
       </div>
     </div>
