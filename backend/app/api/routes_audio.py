@@ -237,7 +237,7 @@ async def mux_studio_video(
             "-shortest",
             temp_out_path
         ]
-        res = subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, timeout=90)
+        res = subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, timeout=180)
         
         # Fallback if container stream copy fails on codecs/format
         if res.returncode != 0 or not os.path.exists(temp_out_path) or os.path.getsize(temp_out_path) == 0:
@@ -258,7 +258,7 @@ async def mux_studio_video(
                 "-shortest",
                 temp_out_path
             ]
-            res_fallback = subprocess.run(cmd_fallback, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, timeout=120)
+            res_fallback = subprocess.run(cmd_fallback, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, timeout=300)
             if res_fallback.returncode != 0:
                 fb_err = res_fallback.stderr.decode("utf-8", errors="ignore") if res_fallback.stderr else ""
                 logger.error(f"[Studio Mux] Fallback transcoding also failed (rc={res_fallback.returncode}): {fb_err.strip()}")

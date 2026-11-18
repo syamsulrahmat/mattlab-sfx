@@ -877,6 +877,28 @@ export const StudioPage: React.FC<StudioPageProps> = ({ onBackToLibrary }) => {
       return;
     }
 
+    const baseName = videoFile?.name?.replace(/\.[^/.]+$/, '') || 'mattlab_studio';
+    const suggestedFileName = `${baseName}_sound_design_mixdown.wav`;
+
+    // Prompt user immediately for save location (within user gesture)
+    let fileHandle: any = null;
+    if ('showSaveFilePicker' in window) {
+      try {
+        fileHandle = await (window as any).showSaveFilePicker({
+          suggestedName: suggestedFileName,
+          types: [
+            {
+              description: 'WAV Audio File (*.wav)',
+              accept: { 'audio/wav': ['.wav'] },
+            },
+          ],
+        });
+      } catch (err: any) {
+        if (err.name === 'AbortError') return;
+        fileHandle = null;
+      }
+    }
+
     setIsExportingWav(true);
     setStatusMessage({ text: 'Rendering 24-bit/48kHz Master Audio Mixdown...', type: 'info' });
 
@@ -886,15 +908,20 @@ export const StudioPage: React.FC<StudioPageProps> = ({ onBackToLibrary }) => {
       });
       const wavBlob = audioBufferToWavBlob(renderedBuffer);
 
-      const baseName = videoFile?.name?.replace(/\.[^/.]+$/, '') || 'mattlab_studio';
-      const downloadUrl = URL.createObjectURL(wavBlob);
-      const a = document.createElement('a');
-      a.href = downloadUrl;
-      a.download = `${baseName}_sound_design_mixdown.wav`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(downloadUrl);
+      if (fileHandle) {
+        const writable = await fileHandle.createWritable();
+        await writable.write(wavBlob);
+        await writable.close();
+      } else {
+        const downloadUrl = URL.createObjectURL(wavBlob);
+        const a = document.createElement('a');
+        a.href = downloadUrl;
+        a.download = suggestedFileName;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(downloadUrl);
+      }
 
       setStatusMessage({ text: 'Master WAV mixdown exported successfully!', type: 'success' });
       setTimeout(() => setStatusMessage(null), 3000);
@@ -918,6 +945,32 @@ export const StudioPage: React.FC<StudioPageProps> = ({ onBackToLibrary }) => {
       return;
     }
 
+    const baseName = videoFile.name.replace(/\.[^/.]+$/, '');
+    const suggestedFileName = `${baseName}_sound_designed.mp4`;
+
+    // 1. Immediately prompt user where to save the render (within direct user gesture)
+    let fileHandle: any = null;
+    if ('showSaveFilePicker' in window) {
+      try {
+        fileHandle = await (window as any).showSaveFilePicker({
+          suggestedName: suggestedFileName,
+          types: [
+            {
+              description: 'MP4 Video File (*.mp4)',
+              accept: { 'video/mp4': ['.mp4'] },
+            },
+          ],
+        });
+      } catch (err: any) {
+        // User cancelled destination dialog -> abort without running export
+        if (err.name === 'AbortError') {
+          return;
+        }
+        console.warn('showSaveFilePicker unsupported or fallback:', err);
+        fileHandle = null;
+      }
+    }
+
     setIsExportingVideo(true);
     setExportProgress(null);
     setStatusMessage({ text: 'Rendering audio mixdown...', type: 'info' });
@@ -925,7 +978,7 @@ export const StudioPage: React.FC<StudioPageProps> = ({ onBackToLibrary }) => {
     let renderedWavBlob: Blob | null = null;
 
     try {
-      // 1. Render mixdown WAV
+      // 2. Render mixdown WAV
       const renderedBuffer = await renderMixdownBuffer((msg) => {
         setStatusMessage({ text: msg, type: 'info' });
       });
@@ -935,7 +988,7 @@ export const StudioPage: React.FC<StudioPageProps> = ({ onBackToLibrary }) => {
       const videoSizeMB = (videoFile.size / (1024 * 1024)).toFixed(1);
       const isCloudflareRisk = videoFile.size > 95 * 1024 * 1024;
 
-      // 2. Prepare multipart upload using XMLHttpRequest for real-time progress tracking
+      // 3. Prepare multipart upload using XMLHttpRequest for real-time progress tracking
       const formData = new FormData();
       formData.append('video', videoFile);
       formData.append('audio', renderedWavBlob, 'mixdown.wav');
@@ -944,15 +997,17 @@ export const StudioPage: React.FC<StudioPageProps> = ({ onBackToLibrary }) => {
         const xhr = new XMLHttpRequest();
         xhr.open('POST', '/api/studio/mux-video', true);
         xhr.responseType = 'blob';
-        xhr.timeout = 180000; // 3-minute timeout
+        xhr.timeout = 600000; // 10-minute timeout for large video uploads
 
         xhr.upload.onprogress = (evt) => {
           if (evt.lengthComputable) {
             const pct = Math.round((evt.loaded / evt.total) * 100);
+            const loadedMB = (evt.loaded / (1024 * 1024)).toFixed(1);
+            const totalMB = (evt.total / (1024 * 1024)).toFixed(1);
             setExportProgress(pct);
             if (pct < 100) {
               setStatusMessage({
-                text: `Uploading video to FFmpeg multiplexer (${pct}% of ${videoSizeMB}MB)...`,
+                text: `Uploading video to FFmpeg multiplexer (${pct}%: ${loadedMB}MB / ${totalMB}MB)...`,
                 type: 'info',
               });
             } else {
@@ -995,22 +1050,28 @@ export const StudioPage: React.FC<StudioPageProps> = ({ onBackToLibrary }) => {
         };
 
         xhr.ontimeout = () => {
-          reject(new Error('Video multiplexing timed out after 3 minutes.'));
+          reject(new Error('Video upload/multiplexing timed out after 10 minutes.'));
         };
 
         xhr.send(formData);
       });
 
-      // 3. Trigger download of merged MP4 video
-      const baseName = videoFile.name.replace(/\.[^/.]+$/, '');
-      const downloadUrl = URL.createObjectURL(videoBlob);
-      const a = document.createElement('a');
-      a.href = downloadUrl;
-      a.download = `${baseName}_sound_designed.mp4`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(downloadUrl);
+      // 4. Save merged MP4 video to selected destination or trigger download
+      if (fileHandle) {
+        setStatusMessage({ text: 'Saving rendered video to destination...', type: 'info' });
+        const writable = await fileHandle.createWritable();
+        await writable.write(videoBlob);
+        await writable.close();
+      } else {
+        const downloadUrl = URL.createObjectURL(videoBlob);
+        const a = document.createElement('a');
+        a.href = downloadUrl;
+        a.download = suggestedFileName;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(downloadUrl);
+      }
 
       setStatusMessage({ text: 'Sound-designed video exported successfully!', type: 'success' });
       setTimeout(() => setStatusMessage(null), 4000);
@@ -1022,7 +1083,6 @@ export const StudioPage: React.FC<StudioPageProps> = ({ onBackToLibrary }) => {
       // If audio mixdown was already generated, automatically trigger WAV download as fallback
       if (renderedWavBlob) {
         try {
-          const baseName = videoFile.name.replace(/\.[^/.]+$/, '');
           const wavUrl = URL.createObjectURL(renderedWavBlob);
           const wavA = document.createElement('a');
           wavA.href = wavUrl;
