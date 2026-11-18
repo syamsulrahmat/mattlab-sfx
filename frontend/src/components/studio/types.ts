@@ -5,6 +5,8 @@ export interface StudioClip {
   filename: string;
   startTime: number; // in seconds
   duration: number; // in seconds
+  originalDuration?: number; // total raw sound length in seconds
+  trimIn?: number; // start offset within sound file in seconds (default 0)
   volume: number; // 0.0 to 1.5, default 1.0
   trackId: number; // 0 to 3
   category?: string;
