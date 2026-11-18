@@ -4,6 +4,7 @@ import hashlib
 import subprocess
 import tempfile
 import shutil
+import logging
 from typing import Optional
 from fastapi import APIRouter, HTTPException, Request, BackgroundTasks, Query, UploadFile, File
 from fastapi.responses import FileResponse, Response
@@ -180,6 +181,8 @@ def get_peaks(file_id: int):
 
     return [0.0] * 128
 
+logger = logging.getLogger("uvicorn.error")
+
 @router.post("/studio/mux-video")
 async def mux_studio_video(
     background_tasks: BackgroundTasks,
@@ -190,6 +193,7 @@ async def mux_studio_video(
     Lossless video multiplexing: merges client-designed audio mixdown WAV
     with user's original video file using FFmpeg stream copy.
     """
+    logger.info(f"[Studio Mux] Received mux request: video='{video.filename}', audio='{audio.filename}'")
     temp_dir = tempfile.gettempdir()
     
     # Save input video to temp
@@ -215,9 +219,13 @@ async def mux_studio_video(
         with open(temp_audio_path, "wb") as f:
             shutil.copyfileobj(audio.file, f)
             
+        vid_size = os.path.getsize(temp_video_path)
+        aud_size = os.path.getsize(temp_audio_path)
+        logger.info(f"[Studio Mux] Inputs stored: video={vid_size / 1024 / 1024:.2f}MB, audio={aud_size / 1024 / 1024:.2f}MB")
+
         # Fast multiplex: copy video stream without re-encoding, encode audio as high-bitrate AAC
         cmd = [
-            "ffmpeg", "-v", "error", "-y",
+            "ffmpeg", "-v", "warning", "-y",
             "-i", temp_video_path,
             "-i", temp_audio_path,
             "-map", "0:v:0",
@@ -225,15 +233,18 @@ async def mux_studio_video(
             "-c:v", "copy",
             "-c:a", "aac",
             "-b:a", "320k",
+            "-movflags", "+faststart",
             "-shortest",
             temp_out_path
         ]
-        res = subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, timeout=60)
+        res = subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, timeout=90)
         
         # Fallback if container stream copy fails on codecs/format
         if res.returncode != 0 or not os.path.exists(temp_out_path) or os.path.getsize(temp_out_path) == 0:
+            err_msg = res.stderr.decode("utf-8", errors="ignore") if res.stderr else "Unknown error"
+            logger.warning(f"[Studio Mux] Fast stream-copy muxing failed (rc={res.returncode}): {err_msg.strip()}. Falling back to libx264 transcoding...")
             cmd_fallback = [
-                "ffmpeg", "-v", "error", "-y",
+                "ffmpeg", "-v", "warning", "-y",
                 "-i", temp_video_path,
                 "-i", temp_audio_path,
                 "-map", "0:v:0",
@@ -243,17 +254,24 @@ async def mux_studio_video(
                 "-crf", "20",
                 "-c:a", "aac",
                 "-b:a", "320k",
+                "-movflags", "+faststart",
                 "-shortest",
                 temp_out_path
             ]
-            subprocess.run(cmd_fallback, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=90)
+            res_fallback = subprocess.run(cmd_fallback, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, timeout=120)
+            if res_fallback.returncode != 0:
+                fb_err = res_fallback.stderr.decode("utf-8", errors="ignore") if res_fallback.stderr else ""
+                logger.error(f"[Studio Mux] Fallback transcoding also failed (rc={res_fallback.returncode}): {fb_err.strip()}")
             
         if not os.path.exists(temp_out_path) or os.path.getsize(temp_out_path) == 0:
             cleanup_file(temp_video_path)
             cleanup_file(temp_audio_path)
             cleanup_file(temp_out_path)
-            raise HTTPException(status_code=500, detail="Failed to multiplex video and audio")
+            raise HTTPException(status_code=500, detail="Failed to multiplex video and audio with FFmpeg")
             
+        out_size = os.path.getsize(temp_out_path)
+        logger.info(f"[Studio Mux] Multiplexing complete! Output size: {out_size / 1024 / 1024:.2f}MB")
+
         background_tasks.add_task(cleanup_file, temp_video_path)
         background_tasks.add_task(cleanup_file, temp_audio_path)
         background_tasks.add_task(cleanup_file, temp_out_path)
@@ -268,6 +286,7 @@ async def mux_studio_video(
             background=background_tasks
         )
     except Exception as e:
+        logger.error(f"[Studio Mux] Exception during multiplexing: {e}", exc_info=True)
         cleanup_file(temp_video_path)
         cleanup_file(temp_audio_path)
         cleanup_file(temp_out_path)

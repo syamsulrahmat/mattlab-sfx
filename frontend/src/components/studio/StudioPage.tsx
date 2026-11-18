@@ -216,6 +216,7 @@ export const StudioPage: React.FC<StudioPageProps> = ({ onBackToLibrary }) => {
   // Exporting state
   const [isExportingWav, setIsExportingWav] = useState(false);
   const [isExportingVideo, setIsExportingVideo] = useState(false);
+  const [exportProgress, setExportProgress] = useState<number | null>(null);
   const [statusMessage, setStatusMessage] = useState<{ text: string; type: 'info' | 'success' | 'error' } | null>(null);
 
   // References
@@ -223,6 +224,7 @@ export const StudioPage: React.FC<StudioPageProps> = ({ onBackToLibrary }) => {
   const audioCtxRef = useRef<AudioContext | null>(null);
   const activeSourcesRef = useRef<Map<string, { source: AudioBufferSourceNode; gain: GainNode }>>(new Map());
   const cachedBuffersRef = useRef<Map<number, AudioBuffer>>(new Map());
+  const pendingBuffersRef = useRef<Map<number, Promise<AudioBuffer | null>>>(new Map());
 
   // Initialize or get AudioContext
   const getAudioContext = useCallback(() => {
@@ -231,28 +233,71 @@ export const StudioPage: React.FC<StudioPageProps> = ({ onBackToLibrary }) => {
       audioCtxRef.current = new AudioCtx();
     }
     if (audioCtxRef.current.state === 'suspended') {
-      audioCtxRef.current.resume();
+      audioCtxRef.current.resume().catch(() => {});
     }
     return audioCtxRef.current;
   }, []);
 
-  // Pre-load and cache audio buffer for a sound ID
+  // Pre-load and cache audio buffer for a sound ID with concurrency deduplication & timeout safety
   const loadAudioBuffer = useCallback(async (soundId: number): Promise<AudioBuffer | null> => {
     if (cachedBuffersRef.current.has(soundId)) {
       return cachedBuffersRef.current.get(soundId)!;
     }
-    try {
-      const audioCtx = getAudioContext();
-      const res = await fetch(`/api/stream/${soundId}`);
-      if (!res.ok) throw new Error('Failed to fetch audio stream');
-      const arrayBuf = await res.arrayBuffer();
-      const decodedBuf = await audioCtx.decodeAudioData(arrayBuf);
-      cachedBuffersRef.current.set(soundId, decodedBuf);
-      return decodedBuf;
-    } catch (e) {
-      console.error(`Error decoding audio buffer for sound ${soundId}:`, e);
-      return null;
+    if (pendingBuffersRef.current.has(soundId)) {
+      return pendingBuffersRef.current.get(soundId)!;
     }
+
+    const fetchAndDecodePromise = (async (): Promise<AudioBuffer | null> => {
+      try {
+        const audioCtx = getAudioContext();
+        if (audioCtx.state === 'suspended') {
+          try {
+            await audioCtx.resume();
+          } catch {
+            // ignore resume error
+          }
+        }
+
+        const res = await fetch(`/api/stream/${soundId}`, {
+          signal: AbortSignal.timeout(12000),
+        });
+        if (!res.ok) throw new Error(`Stream fetch failed with status ${res.status}`);
+        const arrayBuf = await res.arrayBuffer();
+
+        // Decode with timeout guard to prevent browser decoder deadlocks
+        const decodedBuf = await new Promise<AudioBuffer>((resolve, reject) => {
+          const timer = setTimeout(() => reject(new Error('Audio decoding timed out after 10s')), 10000);
+          audioCtx.decodeAudioData(
+            arrayBuf.slice(0),
+            (buf) => {
+              clearTimeout(timer);
+              resolve(buf);
+            },
+            (err) => {
+              clearTimeout(timer);
+              reject(err || new Error('decodeAudioData callback rejected'));
+            }
+          ).then(
+            (buf) => {
+              clearTimeout(timer);
+              resolve(buf);
+            },
+            () => {}
+          ).catch(() => {});
+        });
+
+        cachedBuffersRef.current.set(soundId, decodedBuf);
+        return decodedBuf;
+      } catch (e) {
+        console.error(`Error loading/decoding audio buffer for sound ${soundId}:`, e);
+        return null;
+      } finally {
+        pendingBuffersRef.current.delete(soundId);
+      }
+    })();
+
+    pendingBuffersRef.current.set(soundId, fetchAndDecodePromise);
+    return fetchAndDecodePromise;
   }, [getAudioContext]);
 
   // Clean up active Web Audio sources
@@ -773,16 +818,23 @@ export const StudioPage: React.FC<StudioPageProps> = ({ onBackToLibrary }) => {
   }, [pushClipsWithHistory]);
 
   // Export 1: Master Audio WAV Mixdown (Client-Side via OfflineAudioContext)
-  const renderMixdownBuffer = async (): Promise<AudioBuffer> => {
+  const renderMixdownBuffer = async (onProgress?: (msg: string) => void): Promise<AudioBuffer> => {
     const sampleRate = 48000;
-    const totalDuration = Math.max(duration || 5, ...clips.map((c) => c.startTime + c.duration), 1);
+    const safeVideoDuration = isFinite(duration) && duration > 0 ? duration : 0;
+    const maxClipEnd = clips.reduce((max, c) => Math.max(max, (c.startTime || 0) + (c.duration || 0)), 0);
+    const totalDuration = Math.max(safeVideoDuration, maxClipEnd, 1);
     const totalFrames = Math.ceil(totalDuration * sampleRate);
+
+    onProgress?.(`Pre-buffering ${clips.length} audio track clip(s)...`);
+
+    // Pre-load all unique sound buffers concurrently with timeout protection
+    const uniqueSoundIds = Array.from(new Set(clips.map((c) => c.soundId)));
+    await Promise.all(uniqueSoundIds.map((id) => loadAudioBuffer(id)));
+
+    onProgress?.('Synthesizing 24-bit/48kHz Master Audio Mixdown...');
 
     const offlineCtx = new OfflineAudioContext(2, totalFrames, sampleRate);
     const hasSolo = tracks.some((t) => t.solo);
-
-    // Pre-load any missing buffers
-    await Promise.all(clips.map((c) => loadAudioBuffer(c.soundId)));
 
     for (const clip of clips) {
       const track = tracks.find((t) => t.id === clip.trackId);
@@ -792,20 +844,31 @@ export const StudioPage: React.FC<StudioPageProps> = ({ onBackToLibrary }) => {
       const buffer = cachedBuffersRef.current.get(clip.soundId);
       if (!buffer) continue;
 
+      const trimIn = Math.max(0, clip.trimIn || 0);
+      if (trimIn >= buffer.duration) continue;
+
+      const availableBuffer = buffer.duration - trimIn;
+      const playDuration = Math.min(clip.duration, availableBuffer);
+      if (playDuration <= 0.01) continue;
+
       const source = offlineCtx.createBufferSource();
       source.buffer = buffer;
 
       const gain = offlineCtx.createGain();
-      gain.gain.value = Math.max(0, (track.volume || 1.0) * (clip.volume || 1.0));
+      gain.gain.value = Math.max(0, (track.volume ?? 1.0) * (clip.volume ?? 1.0));
 
       source.connect(gain);
       gain.connect(offlineCtx.destination);
-      const trimIn = Math.max(0, clip.trimIn || 0);
-      const playDuration = Math.min(clip.duration, Math.max(0, buffer.duration - trimIn));
-      source.start(clip.startTime, trimIn, playDuration);
+      source.start(Math.max(0, clip.startTime), trimIn, playDuration);
     }
 
-    return await offlineCtx.startRendering();
+    // Render with 30s timeout guard to avoid hanging the main thread
+    return await Promise.race([
+      offlineCtx.startRendering(),
+      new Promise<AudioBuffer>((_, reject) =>
+        setTimeout(() => reject(new Error('Audio mixdown rendering timed out after 30s')), 30000)
+      ),
+    ]);
   };
 
   const handleExportWav = async () => {
@@ -818,7 +881,9 @@ export const StudioPage: React.FC<StudioPageProps> = ({ onBackToLibrary }) => {
     setStatusMessage({ text: 'Rendering 24-bit/48kHz Master Audio Mixdown...', type: 'info' });
 
     try {
-      const renderedBuffer = await renderMixdownBuffer();
+      const renderedBuffer = await renderMixdownBuffer((msg) => {
+        setStatusMessage({ text: msg, type: 'info' });
+      });
       const wavBlob = audioBufferToWavBlob(renderedBuffer);
 
       const baseName = videoFile?.name?.replace(/\.[^/.]+$/, '') || 'mattlab_studio';
@@ -841,7 +906,7 @@ export const StudioPage: React.FC<StudioPageProps> = ({ onBackToLibrary }) => {
     }
   };
 
-  // Export 2: Lossless Video Muxing (FFmpeg Backend)
+  // Export 2: Lossless Video Muxing (FFmpeg Backend with live upload progress & fallback)
   const handleExportVideo = async () => {
     if (!videoFile) {
       setStatusMessage({ text: 'Please load a video file first to export merged video.', type: 'error' });
@@ -854,30 +919,89 @@ export const StudioPage: React.FC<StudioPageProps> = ({ onBackToLibrary }) => {
     }
 
     setIsExportingVideo(true);
-    setStatusMessage({ text: 'Rendering audio and multiplexing video via FFmpeg...', type: 'info' });
+    setExportProgress(null);
+    setStatusMessage({ text: 'Rendering audio mixdown...', type: 'info' });
+
+    let renderedWavBlob: Blob | null = null;
 
     try {
       // 1. Render mixdown WAV
-      const renderedBuffer = await renderMixdownBuffer();
-      const wavBlob = audioBufferToWavBlob(renderedBuffer);
+      const renderedBuffer = await renderMixdownBuffer((msg) => {
+        setStatusMessage({ text: msg, type: 'info' });
+      });
+      renderedWavBlob = audioBufferToWavBlob(renderedBuffer);
 
-      // 2. Prepare multipart upload to backend
+      // Check video size
+      const videoSizeMB = (videoFile.size / (1024 * 1024)).toFixed(1);
+      const isCloudflareRisk = videoFile.size > 95 * 1024 * 1024;
+
+      // 2. Prepare multipart upload using XMLHttpRequest for real-time progress tracking
       const formData = new FormData();
       formData.append('video', videoFile);
-      formData.append('audio', wavBlob, 'mixdown.wav');
+      formData.append('audio', renderedWavBlob, 'mixdown.wav');
 
-      const res = await fetch('/api/studio/mux-video', {
-        method: 'POST',
-        body: formData,
+      const videoBlob = await new Promise<Blob>((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+        xhr.open('POST', '/api/studio/mux-video', true);
+        xhr.responseType = 'blob';
+        xhr.timeout = 180000; // 3-minute timeout
+
+        xhr.upload.onprogress = (evt) => {
+          if (evt.lengthComputable) {
+            const pct = Math.round((evt.loaded / evt.total) * 100);
+            setExportProgress(pct);
+            if (pct < 100) {
+              setStatusMessage({
+                text: `Uploading video to FFmpeg multiplexer (${pct}% of ${videoSizeMB}MB)...`,
+                type: 'info',
+              });
+            } else {
+              setStatusMessage({
+                text: 'Lossless FFmpeg multiplexing in progress on server...',
+                type: 'info',
+              });
+            }
+          }
+        };
+
+        xhr.onload = () => {
+          if (xhr.status >= 200 && xhr.status < 300) {
+            resolve(xhr.response);
+          } else {
+            const reader = new FileReader();
+            reader.onload = () => {
+              try {
+                const parsed = JSON.parse(reader.result as string);
+                reject(new Error(parsed.detail || `Server error ${xhr.status}`));
+              } catch {
+                if (xhr.status === 413) {
+                  reject(new Error(`File exceeds upload limit (${videoSizeMB}MB). Use Export WAV mixdown.`));
+                } else {
+                  reject(new Error(`Server returned HTTP ${xhr.status}: ${xhr.statusText || 'Multiplex failed'}`));
+                }
+              }
+            };
+            reader.onerror = () => reject(new Error(`Server error HTTP ${xhr.status}`));
+            reader.readAsText(xhr.response);
+          }
+        };
+
+        xhr.onerror = () => {
+          if (isCloudflareRisk) {
+            reject(new Error(`Upload failed or exceeded 100MB proxy limit (${videoSizeMB}MB). Master WAV mixdown saved instead.`));
+          } else {
+            reject(new Error('Network connection error while communicating with multiplexer.'));
+          }
+        };
+
+        xhr.ontimeout = () => {
+          reject(new Error('Video multiplexing timed out after 3 minutes.'));
+        };
+
+        xhr.send(formData);
       });
 
-      if (!res.ok) {
-        const errJson = await res.json().catch(() => null);
-        throw new Error(errJson?.detail || 'FFmpeg multiplexing failed');
-      }
-
-      // 3. Receive finished video blob
-      const videoBlob = await res.blob();
+      // 3. Trigger download of merged MP4 video
       const baseName = videoFile.name.replace(/\.[^/.]+$/, '');
       const downloadUrl = URL.createObjectURL(videoBlob);
       const a = document.createElement('a');
@@ -894,8 +1018,30 @@ export const StudioPage: React.FC<StudioPageProps> = ({ onBackToLibrary }) => {
       console.error('Export video error:', e);
       const msg = e instanceof Error ? e.message : 'Video export failed.';
       setStatusMessage({ text: `Export failed: ${msg}`, type: 'error' });
+
+      // If audio mixdown was already generated, automatically trigger WAV download as fallback
+      if (renderedWavBlob) {
+        try {
+          const baseName = videoFile.name.replace(/\.[^/.]+$/, '');
+          const wavUrl = URL.createObjectURL(renderedWavBlob);
+          const wavA = document.createElement('a');
+          wavA.href = wavUrl;
+          wavA.download = `${baseName}_sound_design_mixdown.wav`;
+          document.body.appendChild(wavA);
+          wavA.click();
+          document.body.removeChild(wavA);
+          URL.revokeObjectURL(wavUrl);
+          setStatusMessage({
+            text: `Video mux failed (${msg}), but Master WAV mixdown was saved to your downloads!`,
+            type: 'error',
+          });
+        } catch {
+          // ignore fallback download error
+        }
+      }
     } finally {
       setIsExportingVideo(false);
+      setExportProgress(null);
     }
   };
 
@@ -1072,7 +1218,15 @@ export const StudioPage: React.FC<StudioPageProps> = ({ onBackToLibrary }) => {
             ) : (
               <Film className="w-3.5 h-3.5 text-amber-300" />
             )}
-            <span>Export MP4 Video</span>
+            <span>
+              {isExportingVideo
+                ? exportProgress !== null
+                  ? exportProgress < 100
+                    ? `Uploading ${exportProgress}%`
+                    : 'Muxing...'
+                  : 'Rendering...'
+                : 'Export MP4 Video'}
+            </span>
           </button>
         </div>
       </div>
